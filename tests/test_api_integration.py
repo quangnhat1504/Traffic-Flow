@@ -6,38 +6,11 @@ import os
 import sys
 import json
 import tempfile
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import httpx
-
-
-class SyncASGIClient:
-    """Synchronous facade over httpx ASGITransport without cross-thread portals.
-
-    Starlette's TestClient uses an AnyIO event loop in a background thread.
-    That is unreliable in the constrained runner used for this repository, so
-    API tests execute each request on the current thread instead.
-    """
-
-    def __init__(self, app):
-        self.app = app
-
-    def request(self, method: str, url: str, **kwargs):
-        async def send_request():
-            transport = httpx.ASGITransport(app=self.app)
-            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-                return await client.request(method, url, **kwargs)
-
-        return asyncio.run(send_request())
-
-    def get(self, url: str, **kwargs):
-        return self.request("GET", url, **kwargs)
-
-    def post(self, url: str, **kwargs):
-        return self.request("POST", url, **kwargs)
+from fastapi.testclient import TestClient
 
 
 # ---------------------------------------------------------------------------
@@ -63,9 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 class TestConfig:
     def test_settings_loads_from_env(self):
-        from shared.config import Settings
-
-        settings = Settings(_env_file=None)
+        from shared.config import settings
         assert settings.MONGODB_DB_NAME == "trafficflow_test"
         assert settings.REDIS_URL == "redis://localhost:6379/0"
         assert settings.R2_ACCOUNT_ID == "placeholder_account_id"
@@ -77,11 +48,6 @@ class TestConfig:
         assert s.MAX_FILE_SIZE_MB in (50, 1024, 2048)
         assert s.AI_FRAME_SKIP == 1
         assert s.AI_RESIZE_DIM in (640, 640)
-        assert s.AI_ENABLE_STABILIZATION is False
-        assert s.TRACK_MATCH_THRESHOLD == 0.3
-        assert s.TRACK_BUFFER == 8
-        assert s.AI_FRAME_SKIP == 1
-        assert s.AI_RESIZE_DIM == 640
         assert s.AI_ENABLE_STABILIZATION is False
         assert s.TRACK_MATCH_THRESHOLD == 0.3
         assert s.TRACK_BUFFER == 8
@@ -142,17 +108,9 @@ def client():
          patch("shared.database.close_mongo_connection", new_callable=AsyncMock), \
          patch("api.services.cleanup_service.run_data_cleanup", new_callable=AsyncMock):
         from api.app import create_app
-        from shared.database import get_database
         app = create_app()
-
-        async def database_override():
-            return db_instance.db
-
-        # FastAPI executes synchronous dependencies through AnyIO's worker
-        # pool. Override this one with an async dependency so the suite does
-        # not depend on background-thread event-loop support in the runner.
-        app.dependency_overrides[get_database] = database_override
-        yield SyncASGIClient(app)
+        with TestClient(app) as c:
+            yield c
 
 
 class TestFrontendCompatRoutes:
@@ -191,15 +149,15 @@ class TestFrontendCompatRoutes:
 
 class TestApiV1Routes:
     def test_upload_video_route_exists(self, client):
-        paths = client.get("/openapi.json").json()["paths"]
-        assert "/api/v1/upload/video" in paths
+        resp = client.post("/api/v1/upload/video")
+        assert resp.status_code == 422
 
     def test_lanes_config_route_exists(self, client):
-        resp = client.post("/api/v1/lanes/config", json={})
+        resp = client.post("/api/v1/lanes/config")
         assert resp.status_code == 422
 
     def test_tasks_process_route_exists(self, client):
-        resp = client.post("/api/v1/tasks/process", json={})
+        resp = client.post("/api/v1/tasks/process")
         assert resp.status_code == 422
 
     def test_dashboard_stats(self, client):
@@ -244,41 +202,30 @@ class TestCeleryApp:
 # ---------------------------------------------------------------------------
 
 class TestR2Client:
-    @staticmethod
-    def _client(monkeypatch, tmp_path):
-        from shared.config import settings
-        from shared.r2_client import R2Client
+    def test_r2_client_is_mocked(self):
+        from shared.r2_client import r2_client
+        assert r2_client.is_mocked is True
 
-        monkeypatch.setattr(settings, "R2_ACCOUNT_ID", "placeholder_account_id")
-        monkeypatch.setattr(settings, "R2_ACCESS_KEY_ID", "placeholder_access_key")
-        monkeypatch.setattr(settings, "R2_SECRET_ACCESS_KEY", "placeholder_secret_key")
-        monkeypatch.setattr(settings, "STORAGE_DIR", str(tmp_path))
-        return R2Client()
-
-    def test_r2_client_is_mocked(self, monkeypatch, tmp_path):
-        client = self._client(monkeypatch, tmp_path)
-        assert client.is_mocked is True
-
-    def test_r2_upload_returns_url(self, monkeypatch, tmp_path):
-        client = self._client(monkeypatch, tmp_path)
-        url = client.upload_file(b"test", "test/file.txt", "text/plain")
+    def test_r2_upload_returns_url(self):
+        from shared.r2_client import r2_client
+        url = r2_client.upload_file(b"test", "test/file.txt", "text/plain")
         assert "test/file.txt" in url
 
-    def test_r2_upload_and_download_roundtrip(self, monkeypatch, tmp_path):
-        client = self._client(monkeypatch, tmp_path)
+    def test_r2_upload_and_download_roundtrip(self):
+        from shared.r2_client import r2_client
         content = b"hello trafficflow"
         key = "test/roundtrip.bin"
-        client.upload_file(content, key, "application/octet-stream")
-        downloaded = client.download_file(key)
+        url = r2_client.upload_file(content, key, "application/octet-stream")
+        downloaded = r2_client.download_file(key)
         assert downloaded == content
 
-    def test_r2_delete_removes_file(self, monkeypatch, tmp_path):
-        client = self._client(monkeypatch, tmp_path)
+    def test_r2_delete_removes_file(self):
+        from shared.r2_client import r2_client
         key = "test/to_delete.txt"
-        client.upload_file(b"data", key, "text/plain")
-        local_path = client.local_storage_dir / key
+        r2_client.upload_file(b"data", key, "text/plain")
+        local_path = r2_client.local_storage_dir / key
         assert local_path.exists()
-        client.delete_file(key)
+        r2_client.delete_file(key)
         assert not local_path.exists()
 
 
@@ -297,6 +244,13 @@ class TestPipelineImports:
         from worker.pipeline.ai_client import InferenceClient
         assert InferenceClient is not None
 
+    def test_local_class_id_parser(self):
+        from worker.pipeline.local_client import _parse_class_ids
+
+        assert _parse_class_ids("2,3,5,7") == [2, 3, 5, 7]
+        assert _parse_class_ids("") is None
+        assert _parse_class_ids("car") is None
+
     def test_frame_processor_imports(self):
         from worker.pipeline.processor import FrameProcessor
         fp = FrameProcessor(roi_input_size=640, enable_stabilization=False)
@@ -307,7 +261,7 @@ class TestPipelineImports:
         from worker.pipeline.processor import FrameProcessor
 
         frame = np.full((100, 100, 3), 255, dtype=np.uint8)
-        processor = FrameProcessor(roi_input_size=64, enable_stabilization=False)
+        processor = FrameProcessor(roi_input_size=64, roi_mode="roi_mask", enable_stabilization=False)
         polygon = np.array([[10, 10], [80, 10], [10, 80]], dtype=np.int32)
 
         cropped, _ai_frame, transform = processor.process_for_ai(

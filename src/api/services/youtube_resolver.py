@@ -163,7 +163,10 @@ def resolve_youtube_url(url: str) -> ResolvedMedia:
 
 def validate_direct_source_url(url: str) -> None:
     """Reject malformed sources and obvious private-network SSRF targets."""
-    parsed = urlparse(url.strip())
+    raw_url = url.strip()
+    if os.path.exists(raw_url):
+        return
+    parsed = urlparse(raw_url)
     if parsed.scheme not in {"http", "https", "rtsp"} or not parsed.hostname:
         raise SourceResolutionError("Source URL must use http, https, or rtsp", status_code=422)
     if not settings.LIVE_BLOCK_PRIVATE_HOSTS or settings.APP_ENV.lower() not in {"production", "prod"}:

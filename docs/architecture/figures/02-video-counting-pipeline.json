@@ -1,0 +1,121 @@
+{
+  "_": "TrafficFlow Video Processing & Vehicle Counting Pipeline on Edge NPU",
+  "elements": [
+    {
+      "t": "box",
+      "id": "st1",
+      "x": 20,
+      "y": 30,
+      "w": 220,
+      "h": 90,
+      "size": 14,
+      "text": "1. Ingest & Decode\n• MP4 Upload / RTSP Live\n• OpenCV frame reader\n• 1080p @ 30 FPS",
+      "color": "l2",
+      "fill": "soft"
+    },
+    {
+      "t": "box",
+      "id": "st2",
+      "x": 285,
+      "y": 30,
+      "w": 220,
+      "h": 90,
+      "size": 14,
+      "text": "2. Video Stabilizer\n• Fast feature tracking\n• Homography matrix\n• Jitter damping (Δ ≤ 2px)",
+      "color": "ink",
+      "fill": "soft"
+    },
+    {
+      "t": "box",
+      "id": "st3",
+      "x": 550,
+      "y": 30,
+      "w": 220,
+      "h": 90,
+      "size": 14,
+      "text": "3. RK3588 NPU Infer\n• DMA Norm (<0.1ms)\n• YOLOv8 416x416 FP16\n• P95 = 15.1ms · 66.2 FPS",
+      "color": "hot",
+      "fill": "hot"
+    },
+    {
+      "t": "box",
+      "id": "st4",
+      "x": 550,
+      "y": 180,
+      "w": 220,
+      "h": 90,
+      "size": 14,
+      "text": "4. ByteTrack Associator\n• Kalman filter state\n• Match threshold = 0.3\n• Track buffer = 30 frames",
+      "color": "node",
+      "fill": "node"
+    },
+    {
+      "t": "box",
+      "id": "st5",
+      "x": 285,
+      "y": 180,
+      "w": 220,
+      "h": 90,
+      "size": 14,
+      "text": "5. Geometric Counting\n• Vector cross product\n• P1P2 × (curr - prev)\n• Inbound / Outbound",
+      "color": "l4",
+      "fill": "l4"
+    },
+    {
+      "t": "table",
+      "id": "t_counts",
+      "x": 20,
+      "y": 180,
+      "cols": [90, 45, 45],
+      "head": ["Class", "In", "Out"],
+      "rows": [
+        ["motorcycle", "3", "0"],
+        ["car", "1", "0"],
+        ["bus / truck", "0", "0"]
+      ],
+      "title": "6. Verified Counts (DB)",
+      "size": 13,
+      "marks": {
+        "0": {"fill": "node"}
+      }
+    },
+    {
+      "t": "arrow",
+      "from": "st1",
+      "to": "st2",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "t": "arrow",
+      "from": "st2",
+      "to": "st3",
+      "fromSide": "right",
+      "toSide": "left",
+      "color": "hot"
+    },
+    {
+      "t": "arrow",
+      "from": "st3",
+      "to": "st4",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "color": "hot"
+    },
+    {
+      "t": "arrow",
+      "from": "st4",
+      "to": "st5",
+      "fromSide": "left",
+      "toSide": "right",
+      "color": "node"
+    },
+    {
+      "t": "arrow",
+      "from": "st5",
+      "to": "t_counts",
+      "fromSide": "left",
+      "toSide": "right"
+    }
+  ]
+}

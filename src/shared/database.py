@@ -1,8 +1,8 @@
 import copy
-import asyncio
 import json
 import logging
 import os
+import sqlite3
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -13,7 +13,6 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import OperationFailure, PyMongoError, ServerSelectionTimeoutError
 
 from shared.config import settings
-from shared.safe_errors import safe_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -192,6 +191,238 @@ class LocalJsonDatabase:
         os.replace(temporary_path, self.path)
 
 
+class SQLiteWalCollection:
+    def __init__(self, database: "SQLiteWalDatabase", name: str):
+        self._database = database
+        self._name = name
+
+    def _get_all_docs(self) -> List[dict]:
+        with self._database.conn:
+            cursor = self._database.conn.cursor()
+            cursor.execute(
+                "SELECT data FROM collections WHERE collection = ? ORDER BY id ASC",
+                (self._name,),
+            )
+            rows = cursor.fetchall()
+        docs = []
+        for (raw,) in rows:
+            try:
+                doc = json.loads(raw)
+                docs.append(_restore_dates(doc, self._name))
+            except Exception:
+                pass
+        return docs
+
+    def _matches(self, doc: dict, query: Optional[dict]) -> bool:
+        return _matches_query(doc, query)
+
+    async def insert_one(self, doc: dict):
+        async with self._database.lock:
+            stored = copy.deepcopy(doc)
+            doc_id = stored.get("_id") or stored.get("task_id") or stored.get("video_id") or self._database.next_id()
+            stored["_id"] = str(doc_id)
+            serialized = json.dumps(stored, default=_json_default, ensure_ascii=False)
+            with self._database.conn:
+                self._database.conn.execute(
+                    """
+                    INSERT INTO collections (collection, doc_id, data)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(collection, doc_id) DO UPDATE SET data=excluded.data
+                    """,
+                    (self._name, str(doc_id), serialized),
+                )
+            return _InsertOneResult(stored["_id"])
+
+    async def insert_many(self, docs: Iterable[dict]):
+        inserted = []
+        async with self._database.lock:
+            with self._database.conn:
+                for doc in docs:
+                    stored = copy.deepcopy(doc)
+                    doc_id = stored.get("_id") or stored.get("task_id") or stored.get("video_id") or self._database.next_id()
+                    stored["_id"] = str(doc_id)
+                    serialized = json.dumps(stored, default=_json_default, ensure_ascii=False)
+                    self._database.conn.execute(
+                        """
+                        INSERT INTO collections (collection, doc_id, data)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(collection, doc_id) DO UPDATE SET data=excluded.data
+                        """,
+                        (self._name, str(doc_id), serialized),
+                    )
+                    inserted.append(stored["_id"])
+        return type("InsertManyResult", (), {"inserted_ids": inserted})()
+
+    async def find_one(self, query: Optional[dict] = None):
+        async with self._database.lock:
+            if query and len(query) == 1 and "_id" in query and isinstance(query["_id"], (str, int)):
+                target_id = str(query["_id"])
+                with self._database.conn:
+                    cursor = self._database.conn.cursor()
+                    cursor.execute(
+                        "SELECT data FROM collections WHERE collection = ? AND doc_id = ? LIMIT 1",
+                        (self._name, target_id),
+                    )
+                    row = cursor.fetchone()
+                if row:
+                    doc = json.loads(row[0])
+                    return _restore_dates(doc, self._name)
+                return None
+
+            for doc in self._get_all_docs():
+                if self._matches(doc, query):
+                    return copy.deepcopy(doc)
+        return None
+
+    def find(self, query: Optional[dict] = None):
+        docs = [copy.deepcopy(doc) for doc in self._get_all_docs() if self._matches(doc, query)]
+        return LocalCursor(docs)
+
+    async def update_one(self, query: dict, update: dict, upsert: bool = False):
+        async with self._database.lock:
+            all_docs = self._get_all_docs()
+            for doc in all_docs:
+                if self._matches(doc, query):
+                    if "$set" in update:
+                        doc.update(copy.deepcopy(update["$set"]))
+                    else:
+                        doc.update(copy.deepcopy(update))
+                    serialized = json.dumps(doc, default=_json_default, ensure_ascii=False)
+                    doc_id = str(doc.get("_id"))
+                    with self._database.conn:
+                        self._database.conn.execute(
+                            "UPDATE collections SET data = ? WHERE collection = ? AND doc_id = ?",
+                            (serialized, self._name, doc_id),
+                        )
+                    return _UpdateResult(1, 1)
+
+            if upsert:
+                new_doc = copy.deepcopy(query)
+                if "$set" in update:
+                    new_doc.update(copy.deepcopy(update["$set"]))
+                else:
+                    new_doc.update(copy.deepcopy(update))
+                doc_id = new_doc.get("_id") or self._database.next_id()
+                new_doc["_id"] = str(doc_id)
+                serialized = json.dumps(new_doc, default=_json_default, ensure_ascii=False)
+                with self._database.conn:
+                    self._database.conn.execute(
+                        "INSERT INTO collections (collection, doc_id, data) VALUES (?, ?, ?)",
+                        (self._name, str(doc_id), serialized),
+                    )
+                return _UpdateResult(0, 0, new_doc["_id"])
+        return _UpdateResult(0, 0)
+
+    async def delete_many(self, query: Optional[dict] = None):
+        async with self._database.lock:
+            if not query:
+                with self._database.conn:
+                    cursor = self._database.conn.cursor()
+                    cursor.execute("SELECT COUNT(*) FROM collections WHERE collection = ?", (self._name,))
+                    count = cursor.fetchone()[0]
+                    self._database.conn.execute("DELETE FROM collections WHERE collection = ?", (self._name,))
+                return _DeleteResult(count)
+
+            deleted = 0
+            for doc in self._get_all_docs():
+                if self._matches(doc, query):
+                    doc_id = str(doc.get("_id"))
+                    with self._database.conn:
+                        self._database.conn.execute(
+                            "DELETE FROM collections WHERE collection = ? AND doc_id = ?",
+                            (self._name, doc_id),
+                        )
+                    deleted += 1
+            return _DeleteResult(deleted)
+
+    async def count_documents(self, query: Optional[dict] = None):
+        async with self._database.lock:
+            if not query:
+                with self._database.conn:
+                    cursor = self._database.conn.cursor()
+                    cursor.execute("SELECT COUNT(*) FROM collections WHERE collection = ?", (self._name,))
+                    return cursor.fetchone()[0]
+            return sum(1 for doc in self._get_all_docs() if self._matches(doc, query))
+
+    def aggregate(self, pipeline: list):
+        docs = [copy.deepcopy(doc) for doc in self._get_all_docs()]
+        for stage in pipeline or []:
+            if "$match" in stage:
+                docs = [doc for doc in docs if _matches_query(doc, stage["$match"])]
+            elif "$group" in stage:
+                spec = stage["$group"]
+                id_expression = spec.get("_id")
+                sum_expression = next(
+                    (value["$sum"] for key, value in spec.items() if key != "_id" and isinstance(value, dict) and "$sum" in value),
+                    None,
+                )
+                grouped: dict[Any, dict] = {}
+                for doc in docs:
+                    group_id = doc.get(id_expression[1:]) if isinstance(id_expression, str) and id_expression.startswith("$") else id_expression
+                    row = grouped.setdefault(group_id, {"_id": group_id})
+                    if sum_expression:
+                        field = sum_expression[1:] if isinstance(sum_expression, str) and sum_expression.startswith("$") else None
+                        row_key = next((key for key in spec if key != "_id"), "total")
+                        row[row_key] = row.get(row_key, 0) + (int(doc.get(field) or 0) if field else int(sum_expression or 0))
+                docs = list(grouped.values())
+        return LocalCursor(docs)
+
+
+class SQLiteWalDatabase:
+    """Embedded SQLite database configured with WAL mode for fast O(1) writes."""
+
+    def __init__(self, path: str):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.lock = _AsyncThreadLock()
+        self._counter = 0
+        self.conn = sqlite3.connect(str(self.path), check_same_thread=False, timeout=15.0)
+        self._init_db()
+
+    def _init_db(self):
+        with self.conn:
+            self.conn.execute("PRAGMA journal_mode=WAL;")
+            self.conn.execute("PRAGMA synchronous=NORMAL;")
+            self.conn.execute("PRAGMA busy_timeout=5000;")
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS collections (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    collection TEXT NOT NULL,
+                    doc_id TEXT NOT NULL,
+                    data TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(collection, doc_id)
+                );
+                """
+            )
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_coll ON collections(collection);")
+            self.conn.execute("CREATE INDEX IF NOT EXISTS idx_coll_doc ON collections(collection, doc_id);")
+
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT MAX(id) FROM collections")
+            max_id = cursor.fetchone()[0]
+            self._counter = int(max_id or 0)
+
+    def __getattr__(self, name: str):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return SQLiteWalCollection(self, name)
+
+    def __getitem__(self, name: str):
+        return SQLiteWalCollection(self, name)
+
+    def next_id(self) -> str:
+        self._counter += 1
+        return f"local-{self._counter}"
+
+    def close(self):
+        try:
+            self.conn.close()
+        except Exception:
+            pass
+
+
 class _AsyncThreadLock:
     def __init__(self):
         self._lock = threading.RLock()
@@ -268,38 +499,43 @@ def _restore_dates(value: Any, key: Optional[str] = None):
 
 
 async def connect_to_mongo():
-    logger.info("Connecting to configured MongoDB...")
-    ping_timeout_seconds = max(
-        settings.MONGODB_SERVER_SELECTION_TIMEOUT_MS,
-        settings.MONGODB_CONNECT_TIMEOUT_MS,
-    ) / 1000 + 0.5
+    logger.info("Connecting to MongoDB Atlas...")
     client_options = {
         "serverSelectionTimeoutMS": settings.MONGODB_SERVER_SELECTION_TIMEOUT_MS,
         "connectTimeoutMS": settings.MONGODB_CONNECT_TIMEOUT_MS,
-        "socketTimeoutMS": settings.MONGODB_CONNECT_TIMEOUT_MS,
     }
     if settings.MONGODB_TLS or settings.MONGODB_URI.startswith("mongodb+srv://"):
         client_options["tlsCAFile"] = certifi.where()
     client = AsyncIOMotorClient(settings.MONGODB_URI, **client_options)
     try:
-        await asyncio.wait_for(client.admin.command("ping"), timeout=ping_timeout_seconds)
+        await client.admin.command("ping")
         db_instance.client = client
         db_instance.db = client[settings.MONGODB_DB_NAME]
         db_instance.using_local_fallback = False
         await _ensure_mongo_indexes(db_instance.db)
         logger.info("Connected to MongoDB successfully!")
-    except (asyncio.TimeoutError, ServerSelectionTimeoutError, PyMongoError, OSError) as exc:
+    except (ServerSelectionTimeoutError, PyMongoError, OSError) as exc:
         client.close()
         if not settings.MONGODB_LOCAL_FALLBACK:
             raise
         db_instance.client = None
-        db_instance.db = LocalJsonDatabase(settings.LOCAL_DB_PATH)
-        db_instance.using_local_fallback = True
-        logger.warning(
-            "MongoDB unavailable (%s). Falling back to local JSON DB at %s",
-            safe_error_message(exc),
-            settings.LOCAL_DB_PATH,
-        )
+        engine = getattr(settings, "LOCAL_DB_ENGINE", "sqlite").lower()
+        if engine == "sqlite":
+            db_instance.db = SQLiteWalDatabase(getattr(settings, "SQLITE_DB_PATH", "storage/trafficflow_edge.sqlite"))
+            db_instance.using_local_fallback = True
+            logger.warning(
+                "MongoDB unavailable (%s). Falling back to SQLite WAL database at %s",
+                exc,
+                getattr(settings, "SQLITE_DB_PATH", "storage/trafficflow_edge.sqlite"),
+            )
+        else:
+            db_instance.db = LocalJsonDatabase(settings.LOCAL_DB_PATH)
+            db_instance.using_local_fallback = True
+            logger.warning(
+                "MongoDB unavailable (%s). Falling back to local JSON DB at %s",
+                exc,
+                settings.LOCAL_DB_PATH,
+            )
 
 
 async def _ensure_mongo_indexes(database) -> None:

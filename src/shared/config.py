@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     MONGODB_SERVER_SELECTION_TIMEOUT_MS: int = Field(default=1500, ge=100, le=120000)
     MONGODB_CONNECT_TIMEOUT_MS: int = Field(default=1500, ge=100, le=120000)
     LOCAL_DB_PATH: str = Field(default="storage/local_db.json")
+    LOCAL_DB_ENGINE: str = Field(default="sqlite")  # sqlite | json
+    SQLITE_DB_PATH: str = Field(default="storage/trafficflow_edge.sqlite")
     APP_ENV: str = Field(default="local")
     CORS_ORIGINS: str = Field(default="http://127.0.0.1:5173")
     CALLBACK_HOST: str = Field(default="http://127.0.0.1:8000")
@@ -71,7 +73,7 @@ class Settings(BaseSettings):
     RETENTION_DAYS: int = Field(default=3)
     STORAGE_DIR: str = Field(default="storage")
 
-    # Video normalization (4K → 1080p working copy)
+    # Video normalization (4K ΓåÆ 1080p working copy)
     VIDEO_MAX_WIDTH: int = Field(default=1920)
     VIDEO_MAX_HEIGHT: int = Field(default=1080)
     VIDEO_MAX_FPS: int = Field(default=30)
@@ -87,7 +89,7 @@ class Settings(BaseSettings):
     AI_MODEL_DIR: str = Field(default="inference/models")
     AI_MODEL_PATH: str = Field(default="yolov8n.pt")
     AI_DEVICE: str = Field(default="0")
-    AI_IMGSZ: int = Field(default=640)
+    AI_IMGSZ: int = Field(default=416)
     AI_HALF: bool = Field(default=True)
     AI_CLASS_IDS: str = Field(default="2,3,5,7")
     AI_CLASS_NAME_MAP: str = Field(default="")

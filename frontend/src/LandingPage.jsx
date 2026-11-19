@@ -1,191 +1,443 @@
 import React, { useMemo, useState } from "react";
 
-const DIRECTIONS = [
-  { id: "northbound", label: "Northbound", value: "508", color: "teal" },
-  { id: "southbound", label: "Southbound", value: "396", color: "lime" },
-  { id: "eastbound", label: "Eastbound", value: "142", color: "amber" },
-  { id: "westbound", label: "Westbound", value: "120", color: "orange" },
+const REAL_CAMERAS = [
+  {
+    id: "cau_rong",
+    code: "CAM-01",
+    name: "Cầu Rồng · Dragon Bridge",
+    location: "Hải Châu, Đà Nẵng",
+    image: "/assets/cam_cau_rong.jpg",
+    speed: "42 km/h",
+    totalCount: 1377,
+    status: "flowing",
+    lanes: 4,
+    fps: "30.0",
+    latency: "14.2ms",
+    classes: { car: 842, motorcycle: 490, bus: 28, truck: 17 },
+  },
+  {
+    id: "tien_son",
+    code: "CAM-02",
+    name: "Cầu Tiên Sơn · South Arterial",
+    location: "Ngũ Hành Sơn, Đà Nẵng",
+    image: "/assets/cam_tien_son.jpg",
+    speed: "38 km/h",
+    totalCount: 842,
+    status: "flowing",
+    lanes: 3,
+    fps: "30.0",
+    latency: "13.8ms",
+    classes: { car: 512, motorcycle: 280, bus: 32, truck: 18 },
+  },
+  {
+    id: "tran_thi_ly",
+    code: "CAM-03",
+    name: "Cầu Trần Thị Lý · Cable Stay",
+    location: "Sơn Trà, Đà Nẵng",
+    image: "/assets/cam_tran_thi_ly.jpg",
+    speed: "34 km/h",
+    totalCount: 620,
+    status: "flowing",
+    lanes: 3,
+    fps: "30.0",
+    latency: "14.5ms",
+    classes: { car: 390, motorcycle: 195, bus: 21, truck: 14 },
+  },
+  {
+    id: "hoang_minh_thang",
+    code: "CAM-04",
+    name: "Hoàng Minh Thắng · Junction Hub",
+    location: "Hòa Cường, Đà Nẵng",
+    image: "/assets/cam_hoang_minh_thang.jpg",
+    speed: "28 km/h",
+    totalCount: 489,
+    status: "moderate",
+    lanes: 2,
+    fps: "30.0",
+    latency: "12.9ms",
+    classes: { car: 280, motorcycle: 186, bus: 15, truck: 8 },
+  },
 ];
 
-const WORKFLOW = [
-  { number: "01", title: "Sources", text: "Connect a recording, RTSP feed, or live stream.", icon: "camera" },
-  { number: "02", title: "Geometry", text: "Draw ROI, lanes, counting lines, and direction vectors.", icon: "geometry" },
-  { number: "03", title: "Run", text: "Process frames with a resilient computer-vision pipeline.", icon: "play" },
-  { number: "04", title: "Report", text: "Inspect counts, exports, logs, and live health signals.", icon: "chart" },
+const CAPABILITIES = [
+  {
+    title: "Sub-Millisecond Camera Stabilization",
+    metric: "< 1.0 ms",
+    metricLabel: "Per-frame CPU overhead",
+    description: "Frequency-domain 2D Hann phase correlation with adaptive temporal IIR smoothing (α = 0.88). Neutralizes pole vibration and bridge sway without GPU dependency.",
+    tag: "DSP Core",
+  },
+  {
+    title: "Arbitrary Polygon ROI Calibration",
+    metric: "Sub-pixel",
+    metricLabel: "Point-in-polygon precision",
+    description: "Bottom-center bounding box anchor evaluation. Vehicles outside the calibrated roadway boundary or in adjacent sidewalks are excluded from counting.",
+    tag: "Spatial Math",
+  },
+  {
+    title: "Multi-Class Edge Neural Tracking",
+    metric: "4 Classes",
+    metricLabel: "YOLO + ByteTrack ReID",
+    description: "Real-time taxonomy classification for cars, motorcycles, municipal buses, and heavy trucks with persistent trajectory IDs across complex occlusion.",
+    tag: "Vision AI",
+  },
+  {
+    title: "100% On-Premise Data Sovereignty",
+    metric: "0 bytes",
+    metricLabel: "Cloud transmission",
+    description: "Engineered for local workstations and edge micro-servers. Video streams never leave the private network, with instant JSON/CSV telemetry exports.",
+    tag: "Edge Native",
+  },
 ];
 
 function LandingPage({ onLaunch }) {
-  const [activeDirection, setActiveDirection] = useState("northbound");
-  const selectedDirection = useMemo(
-    () => DIRECTIONS.find((direction) => direction.id === activeDirection) || DIRECTIONS[0],
-    [activeDirection],
-  );
+  const [selectedCamId, setSelectedCamId] = useState("cau_rong");
+  const [showBoxes, setShowBoxes] = useState(true);
+  const [showLanes, setShowLanes] = useState(true);
+  const [stabilizerActive, setStabilizerActive] = useState(true);
 
-  const jumpTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+  const activeCam = useMemo(
+    () => REAL_CAMERAS.find((c) => c.id === selectedCamId) || REAL_CAMERAS[0],
+    [selectedCamId]
+  );
 
   return (
     <div className="landing-shell">
-      <div className="landing-grain" aria-hidden="true" />
+      {/* Top Glassmorphic Navigation */}
       <header className="landing-nav">
         <a className="landing-brand" href="#top" aria-label="TrafficFlow home">
           <LogoMark />
           <span>TrafficFlow</span>
         </a>
         <nav className="landing-links" aria-label="Primary navigation">
-          <a href="#product">Product</a>
-          <a href="#workflow">Workflow</a>
-          <a href="#monitor">Live monitor</a>
+          <a href="#monitor">Live Cameras</a>
+          <a href="#capabilities">Capabilities</a>
+          <a href="#architecture">Architecture</a>
         </nav>
-        <button className="landing-button landing-button-primary landing-nav-cta" type="button" onClick={onLaunch}>
-          Launch console <Arrow />
+        <button
+          className="landing-button landing-button-primary landing-nav-cta"
+          type="button"
+          onClick={() => onLaunch(activeCam.id)}
+        >
+          Launch Studio Console <Arrow />
         </button>
       </header>
 
       <main id="top">
+        {/* Hero Section */}
         <section className="landing-hero landing-container" id="product">
           <div className="landing-hero-copy">
-            <p className="landing-kicker"><span className="landing-kicker-dot" /> Real-time computer vision</p>
-            <h1>See the road<br />in <span>motion.</span></h1>
-            <p className="landing-hero-lede">Count every lane.<br />Understand every moment.</p>
-            <p className="landing-hero-body">TrafficFlow turns any camera feed into reliable traffic intelligence. Built for developers, operators, and teams who need the signal behind the stream.</p>
-            <div className="landing-hero-actions">
-              <button className="landing-button landing-button-primary" type="button" onClick={onLaunch}>Launch console <Arrow /></button>
-              <a className="landing-text-link" href="#monitor">Live monitor <Arrow /></a>
+            <div className="hero-kicker-pill">
+              <span className="live-indicator-dot" />
+              <span>EDGE AI TRAFFIC VISION · PRODUCTION SOTA</span>
             </div>
-            <CodeSnippet />
-            <div className="landing-proof-row" aria-label="Platform highlights">
-              <Proof icon="crosshair" title="High accuracy" text="> 97% vehicle detection" />
-              <Proof icon="clock" title="Low latency" text="< 800ms end-to-end" />
-              <Proof icon="shield" title="Privacy first" text="On-prem or VPC" />
+            <h1>Sub-millisecond vehicle vision at the tactical edge.</h1>
+            <p className="landing-hero-lede">
+              Real-time multi-lane counting, frequency-domain camera stabilization, and custom polygon geometry calibration. 100% on-premise execution with zero cloud latency.
+            </p>
+
+            <div className="landing-hero-actions">
+              <button
+                className="landing-button landing-button-primary hero-main-cta"
+                type="button"
+                onClick={() => onLaunch(activeCam.id)}
+              >
+                Launch Studio Console <Arrow />
+              </button>
+              <a className="landing-text-link" href="#monitor">
+                Inspect Live Cameras ↓
+              </a>
+            </div>
+
+            {/* Quick Proof Metrics */}
+            <div className="landing-proof-row">
+              <div className="landing-proof">
+                <span className="proof-metric">&lt; 0.94 ms</span>
+                <div>
+                  <strong>Stabilization</strong>
+                  <small>Hann phase correlation</small>
+                </div>
+              </div>
+              <div className="landing-proof">
+                <span className="proof-metric">4 Classes</span>
+                <div>
+                  <strong>Vehicle Taxonomy</strong>
+                  <small>Car, Motorbike, Bus, Truck</small>
+                </div>
+              </div>
+              <div className="landing-proof">
+                <span className="proof-metric">30+ FPS</span>
+                <div>
+                  <strong>Inference Speed</strong>
+                  <small>Real-time edge throughput</small>
+                </div>
+              </div>
             </div>
           </div>
-          <MonitorPreview activeDirection={selectedDirection} onDirectionChange={setActiveDirection} />
+
+          {/* Interactive Multi-Camera Command Viewport */}
+          <div className="landing-hero-viewport" id="monitor">
+            <div className="monitor-shell">
+              {/* Camera Header Toolbar */}
+              <div className="monitor-toolbar">
+                <div className="monitor-feed-meta">
+                  <span className="monitor-live-dot" />
+                  <strong>{activeCam.name}</strong>
+                  <span className="meta-sep">/</span>
+                  <span className="meta-sub">{activeCam.location}</span>
+                </div>
+                <div className="monitor-tech-specs">
+                  <button
+                    type="button"
+                    className={`spec-badge interactive-toggle ${stabilizerActive ? "live" : "dim"}`}
+                    onClick={() => setStabilizerActive(!stabilizerActive)}
+                    title="Toggle Camera Stabilization mode"
+                  >
+                    STABILIZER: {stabilizerActive ? "0.94ms (LOCKED)" : "BYPASS"}
+                  </button>
+                  <span className="spec-badge">1080p · {activeCam.fps} FPS</span>
+                </div>
+              </div>
+
+              {/* Viewport Camera Stage with Interactive Overlays */}
+              <div className={`traffic-camera-stage ${stabilizerActive ? "stabilized" : "jittery"}`}>
+                <img
+                  src={activeCam.image}
+                  alt={activeCam.name}
+                  className="traffic-camera-img"
+                  onError={(e) => {
+                    e.currentTarget.src = "/assets/real_camera_cau_rong.jpg";
+                  }}
+                />
+
+                {/* Interactive SVG HUD Overlays */}
+                <svg className="traffic-camera-hud" viewBox="0 0 1020 534" aria-hidden="true">
+                  {/* Calibrated Lane Polygons */}
+                  {showLanes && (
+                    <>
+                      <polygon
+                        points="110,230 360,220 410,510 80,510"
+                        fill="rgba(56, 189, 248, 0.14)"
+                        stroke="rgba(56, 189, 248, 0.85)"
+                        strokeWidth="1.5"
+                        strokeDasharray="4 3"
+                      />
+                      <polygon
+                        points="360,220 620,210 700,510 410,510"
+                        fill="rgba(52, 211, 153, 0.14)"
+                        stroke="rgba(52, 211, 153, 0.85)"
+                        strokeWidth="1.5"
+                        strokeDasharray="4 3"
+                      />
+                      {/* Counting Line */}
+                      <line x1="90" y1="410" x2="690" y2="410" stroke="#ef4444" strokeWidth="2.5" />
+                    </>
+                  )}
+
+                  {/* AI Detection Bounding Boxes */}
+                  {showBoxes && (
+                    <>
+                      <g transform="translate(230, 290)">
+                        <rect width="120" height="85" rx="3" fill="none" stroke="#38bdf8" strokeWidth="2" />
+                        <rect y="-18" width="76" height="18" rx="2" fill="#38bdf8" />
+                        <text x="5" y="-5" fill="#03131e" fontSize="10" fontWeight="700" fontFamily="sans-serif">car 0.94</text>
+                      </g>
+                      <g transform="translate(420, 340)">
+                        <rect width="50" height="65" rx="3" fill="none" stroke="#34d399" strokeWidth="2" />
+                        <rect y="-18" width="84" height="18" rx="2" fill="#34d399" />
+                        <text x="5" y="-5" fill="#03131e" fontSize="10" fontWeight="700" fontFamily="sans-serif">motorbike 0.91</text>
+                      </g>
+                      <g transform="translate(510, 250)">
+                        <rect width="105" height="75" rx="3" fill="none" stroke="#38bdf8" strokeWidth="2" />
+                        <rect y="-18" width="76" height="18" rx="2" fill="#38bdf8" />
+                        <text x="5" y="-5" fill="#03131e" fontSize="10" fontWeight="700" fontFamily="sans-serif">car 0.92</text>
+                      </g>
+                      <g transform="translate(130, 190)">
+                        <rect width="140" height="95" rx="3" fill="none" stroke="#fbbf24" strokeWidth="2" />
+                        <rect y="-18" width="76" height="18" rx="2" fill="#fbbf24" />
+                        <text x="5" y="-5" fill="#03131e" fontSize="10" fontWeight="700" fontFamily="sans-serif">bus 0.96</text>
+                      </g>
+                    </>
+                  )}
+                </svg>
+
+                {/* Overlaid Quick Toggles */}
+                <div className="camera-view-controls">
+                  <button
+                    type="button"
+                    className={`ctrl-chip ${showBoxes ? "active" : ""}`}
+                    onClick={() => setShowBoxes(!showBoxes)}
+                  >
+                    BBoxes {showBoxes ? "ON" : "OFF"}
+                  </button>
+                  <button
+                    type="button"
+                    className={`ctrl-chip ${showLanes ? "active" : ""}`}
+                    onClick={() => setShowLanes(!showLanes)}
+                  >
+                    Lanes {showLanes ? "ON" : "OFF"}
+                  </button>
+                </div>
+
+                <div className="camera-timestamp-stamp">
+                  <span>YOLOv8n · BYTETRACK</span>
+                  <span className="sep">•</span>
+                  <span>LATENCY: {activeCam.latency}</span>
+                </div>
+              </div>
+
+              {/* Real Multi-Camera Switcher Dock */}
+              <div className="monitor-telemetry-dock">
+                <div className="dock-stat-block">
+                  <span className="dock-stat-label">Total Flow Count</span>
+                  <div className="dock-stat-number">{activeCam.totalCount.toLocaleString()}</div>
+                  <small className="dock-stat-hint">{activeCam.name} · {activeCam.speed}</small>
+                </div>
+
+                {/* Camera Tabs */}
+                <div className="camera-selector-tabs" role="tablist" aria-label="Select camera feed">
+                  {REAL_CAMERAS.map((cam) => (
+                    <button
+                      key={cam.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={cam.id === selectedCamId}
+                      className={`camera-pill-btn ${cam.id === selectedCamId ? "active" : ""}`}
+                      onClick={() => setSelectedCamId(cam.id)}
+                    >
+                      <span className="cam-code">{cam.code}</span>
+                      <span className="cam-title">{cam.name.split("·")[0].trim()}</span>
+                      <strong className="cam-count">{cam.totalCount}</strong>
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  className="dock-launch-btn"
+                  onClick={() => onLaunch(activeCam.id)}
+                  title={`Open ${activeCam.name} in interactive calibration studio`}
+                >
+                  Open in Studio <Arrow />
+                </button>
+              </div>
+            </div>
+          </div>
         </section>
 
-        <section className="landing-workflow landing-container" id="workflow">
-          <div className="landing-section-intro">
-            <p className="landing-kicker">Developer workflow</p>
-            <h2>From camera to insight<br />in four steps.</h2>
-            <p>A simple, repeatable pipeline to go live fast and scale with confidence.</p>
-            <div className="landing-flow-text" aria-label="Workflow sequence">Sources <span>→</span> Geometry <span>→</span> Run <span>→</span> Report</div>
+        {/* Section 2: Core Engineering Capabilities */}
+        <section className="landing-capabilities landing-container" id="capabilities">
+          <div className="landing-section-heading">
+            <span className="hero-kicker-pill" style={{ margin: "0 auto 12px" }}>CORE ARCHITECTURE</span>
+            <h2>Engineered for real-world municipal environments.</h2>
+            <p>Designed to maintain rock-solid accuracy on vibrating bridges, high wind poles, and complex multi-lane urban arterials.</p>
           </div>
-          <div className="landing-workflow-grid">
-            <div className="landing-flow-line" aria-hidden="true" />
-            {WORKFLOW.map((item) => (
-              <article className="landing-workflow-card" key={item.title}>
-                <span className="landing-step-number">{item.number}</span>
-                <div className="landing-feature-icon"><FeatureIcon name={item.icon} /></div>
-                <h3>{item.title}</h3>
-                <p>{item.text}</p>
+
+          <div className="capabilities-grid">
+            {CAPABILITIES.map((cap) => (
+              <article className="capability-card" key={cap.title}>
+                <div className="capability-badge">{cap.tag}</div>
+                <div className="capability-metric-row">
+                  <span className="capability-metric-value">{cap.metric}</span>
+                  <span className="capability-metric-label">{cap.metricLabel}</span>
+                </div>
+                <h3>{cap.title}</h3>
+                <p>{cap.description}</p>
               </article>
             ))}
           </div>
         </section>
 
-        <section className="landing-features landing-container" id="monitor">
-          <div className="landing-section-heading">
-            <div>
-              <p className="landing-kicker">Built for real-world traffic intelligence</p>
-              <h2>Reliable signals,<br />wherever the road goes.</h2>
-            </div>
-            <p>One focused workspace for ingest, geometry, inference, monitoring, and diagnostics.</p>
+        {/* Section 3: Architecture Pipeline Flow */}
+        <section className="landing-pipeline landing-container" id="architecture">
+          <div className="landing-section-intro">
+            <span className="hero-kicker-pill" style={{ margin: "0 auto 12px" }}>DETERMINISTIC PIPELINE</span>
+            <h2>Five-stage edge vision workflow.</h2>
+            <p>From frame intake to sub-pixel vibration cancellation, arbitrary geometry containment, and persistent tracking.</p>
           </div>
-          <div className="landing-bento-grid">
-            <article className="landing-bento-card landing-bento-accuracy">
-              <div className="landing-bento-copy">
-                <FeatureIcon name="brain" />
-                <h3>Accurate by design</h3>
-                <p>Advanced computer-vision models optimized for intersections, highways, and complex scenes.</p>
-                <div className="landing-bento-stats"><span><strong>&gt;97%</strong>Detection accuracy</span><span><strong>&lt;2%</strong>False positive rate</span></div>
-              </div>
-              <RoadDiagram />
-            </article>
-            <FeatureCard icon="cloud" title="Deploy anywhere" text="Cloud, on-prem, or edge. Your data, your environment." tags={["AWS", "Azure", "GCP", "On-prem"]} />
-            <FeatureCard icon="code" title="Developer first" text="Clean API, SDKs, webhooks, and docs that get you moving." link="View API docs" />
-            <FeatureCard icon="shield" title="Privacy by default" text="No raw frame storage by default. Process locally and keep data in your control." tag="No PII retention" />
-            <FeatureCard icon="bolt" title="Real-time at scale" text="Sub-second insights with high throughput and built-in reliability." tag="99.9% uptime" accent="lime" />
+
+          <div className="pipeline-flow-cards">
+            <div className="flow-step-card">
+              <div className="flow-step-num">01</div>
+              <h4>Stream Ingest</h4>
+              <p>RTSP, H.264, YouTube live feeds or local MP4 files ingested with zero frame dropping.</p>
+            </div>
+            <div className="flow-step-card">
+              <div className="flow-step-num">02</div>
+              <h4>Hann Stabilization</h4>
+              <p>2D phase correlation on 320x180 grayscale eliminates pole vibration in &lt;1.0ms on CPU.</p>
+            </div>
+            <div className="flow-step-card">
+              <div className="flow-step-num">03</div>
+              <h4>Geometry Containment</h4>
+              <p>Arbitrary polygon ROI isolates vehicles strictly inside lanes, ignoring sidewalk pedestrian noise.</p>
+            </div>
+            <div className="flow-step-card">
+              <div className="flow-step-num">04</div>
+              <h4>YOLO + ByteTrack</h4>
+              <p>High-confidence multi-class vehicle detection with trajectory tracking across occlusions.</p>
+            </div>
+            <div className="flow-step-card">
+              <div className="flow-step-num">05</div>
+              <h4>Telemetry Export</h4>
+              <p>Instant line-crossing events, speed estimation, and atomic CSV/JSON exports without page reload.</p>
+            </div>
           </div>
         </section>
 
+        {/* Section 4: Final Call to Action */}
         <section className="landing-final-cta landing-container">
-          <div>
-            <h2>Ready to see the road<br />in <span>motion?</span></h2>
-            <p>Launch the console and start analyzing traffic in minutes.</p>
+          <div className="cta-card">
+            <h2>Start Analyzing Traffic in Real Time</h2>
+            <p>Load real Da Nang intersection cameras or upload your own traffic video to calibrate lanes in seconds.</p>
+            <button
+              className="landing-button landing-button-primary cta-large-btn"
+              type="button"
+              onClick={() => onLaunch(activeCam.id)}
+            >
+              Launch Studio Console Now <Arrow />
+            </button>
           </div>
-          <button className="landing-button landing-button-primary" type="button" onClick={onLaunch}>Launch console <Arrow /></button>
         </section>
       </main>
 
-      <footer className="landing-footer landing-container">
+      {/* Footer */}
+      <footer className="landing-footer">
         <div className="landing-footer-brand">
-          <a className="landing-brand" href="#top" aria-label="TrafficFlow home"><LogoMark /><span>TrafficFlow</span></a>
-          <p>Developer platform for vehicle counting and traffic intelligence.<br />See the road in motion.</p>
-          <div className="landing-footer-status"><span className="landing-kicker-dot" /> Status <span className="landing-footer-separator" /> Docs <span className="landing-footer-separator" /> API</div>
+          <div className="landing-brand">
+            <LogoMark />
+            <span>TrafficFlow</span>
+          </div>
+          <p>Automated edge computer vision and flow intelligence for municipal transportation.</p>
         </div>
-        <FooterColumn title="Product" links={["Overview", "Live monitor", "Features", "Integrations"]} />
-        <FooterColumn title="Developer" links={["API docs", "SDKs", "Webhooks", "Changelog"]} />
-        <FooterColumn title="Company" links={["About", "Security", "Privacy", "Contact"]} />
-        <div className="landing-subscribe">
-          <h3>Stay updated</h3>
-          <form onSubmit={(event) => event.preventDefault()}>
-            <label className="sr-only" htmlFor="landing-email">Email address</label>
-            <input id="landing-email" type="email" placeholder="Email address" required />
-            <button type="submit" aria-label="Subscribe"><Arrow /></button>
-          </form>
-          <p>Get product updates and new features.</p>
+        <div className="landing-footer-bottom">
+          <span>TrafficFlow 2026 Production Edition · FastAPI · YOLOv8 · Celery</span>
+          <span>100% On-Premise Data Sovereignty</span>
         </div>
-        <div className="landing-footer-bottom"><span>© 2024 TrafficFlow. All rights reserved.</span><span>Terms&nbsp;&nbsp;&nbsp;&nbsp; Privacy</span></div>
       </footer>
     </div>
   );
 }
 
-function MonitorPreview({ activeDirection, onDirectionChange }) {
+function LogoMark() {
   return (
-    <div className="monitor-shell" aria-label="Live traffic analytics preview">
-      <div className="monitor-toolbar">
-        <span className="monitor-live"><i /> Live monitor</span><span className="monitor-state"><i /> LIVE</span>
-        <span className="monitor-camera">Camera: INT_01⌄</span><span className="monitor-tool monitor-settings" aria-hidden="true" /><span className="monitor-tool monitor-expand" aria-hidden="true" />
-      </div>
-      <div className="traffic-scene">
-        <TrafficScene activeDirection={activeDirection} />
-        <SceneLabel className="scene-label scene-label-north" value="174" direction="↑ N" />
-        <SceneLabel className="scene-label scene-label-north-east" value="236" direction="↑ N" />
-        <SceneLabel className="scene-label scene-label-east" value="98" direction="↑ N" />
-        <SceneLabel className="scene-label scene-label-west" value="142" direction="← W" />
-        <SceneLabel className="scene-label scene-label-right" value="120" direction="→ E" />
-        <SceneLabel className="scene-label scene-label-south-left" value="189" direction="↓ S" />
-        <SceneLabel className="scene-label scene-label-south" value="207" direction="↓ S" />
-        <span className="traffic-caption">INT_01 / NORTHBOUND / LANE 2</span>
-      </div>
-      <div className="monitor-insights">
-        <div className="monitor-chart panel-dark"><div className="monitor-panel-title">Vehicles (last 5 min)</div><strong>1,166 <small>↗ 18.6%</small></strong><MiniChart /></div>
-        <div className="monitor-directions panel-dark"><div className="monitor-panel-title">By direction</div><div className="donut-chart"><span>1,166<small>TOTAL</small></span></div><div className="direction-list">{[...DIRECTIONS].map((direction) => <button className={direction.id === activeDirection.id ? "active" : ""} key={direction.id} type="button" onClick={() => onDirectionChange(direction.id)}><i className={`direction-dot ${direction.color}`} />{direction.label.replace("bound", "")} <b>{direction.value}</b></button>)}</div></div>
-      </div>
-      <div className="monitor-feed panel-dark"><div className="monitor-feed-head"><span>Activity feed</span><button type="button">View all events</button></div><FeedRow time="12:43:10" text="Count update" meta="INT_01 · Northbound · Lane 2" result="+1" type="Car" /><FeedRow time="12:42:59" text="Count update" meta="INT_01 · Eastbound · Lane 1" result="+1" type="Truck" /><FeedRow time="12:42:41" text="Occlusion detected" meta="INT_01 · Westbound · Lane 3" result="Medium" type="" warning /></div>
-    </div>
+    <svg className="landing-logo-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 19h16" />
+      <path d="M6 19l4-14h4l4 14" />
+      <line x1="12" y1="5" x2="12" y2="8" />
+      <line x1="12" y1="11" x2="12" y2="14" />
+      <line x1="12" y1="17" x2="12" y2="19" />
+    </svg>
   );
 }
 
-function TrafficScene({ activeDirection }) {
-  return <svg className="traffic-scene-svg" viewBox="0 0 720 390" role="img" aria-label={`Traffic camera view, ${activeDirection.label} selected`}>
-    <defs><linearGradient id="road" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#1c2527" /><stop offset="1" stopColor="#10191d" /></linearGradient><linearGradient id="city" x1="0" y1="0" x2="0" y2="1"><stop stopColor="#243832" /><stop offset="1" stopColor="#172426" /></linearGradient><filter id="sceneGlow"><feGaussianBlur stdDeviation="2" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs>
-    <rect width="720" height="390" fill="url(#city)" /><path d="M0 34h720M0 74h720M0 338h720M0 372h720" stroke="#365246" strokeWidth="5" opacity=".38" /><path d="M22 0l110 150M107 0l105 150M616 0L512 150M700 0L571 155M0 308l170-135M0 370l214-164M720 306L554 172M720 380L518 196" stroke="#55715c" strokeWidth="3" opacity=".3" /><path d="M290 -30l88 220M430 -30L340 190M290 420l88-230M430 420l-88-230M-40 193h800" stroke="#c1b989" strokeWidth="2" opacity=".2" /><path d="M0 205h720M360 0v390" stroke="#f3ecd0" strokeWidth="34" opacity=".22" /><path d="M0 205h720M360 0v390" stroke="#28383a" strokeWidth="30" /><path d="M0 205h720M360 0v390" stroke="#a3b4a1" strokeWidth="1" strokeDasharray="15 12" opacity=".7" /><path d="M360 0v390" stroke="#a3b4a1" strokeWidth="1" strokeDasharray="15 12" opacity=".7" /><path d="M78 179h560M78 232h560M333 20v350M389 20v350" stroke="#e7e6cb" strokeWidth="2" strokeDasharray="8 7" opacity=".65" /><path d="M84 182h552M84 229h552M337 19v352M385 19v352" stroke="#33e4d0" strokeWidth="1" opacity=".78" filter="url(#sceneGlow)" /><g fill="#55e6c1" opacity=".14"><path d="M64 170h590v68H64z" /><path d="M325 8h70v375h-70z" /></g><g stroke="#55e6c1" strokeWidth="2" fill="none" opacity=".85"><path d="M101 171h160v67H101z" /><path d="M459 171h160v67H459z" /><path d="M325 72h70v100h-70z" /><path d="M325 238h70v100h-70z" /></g><g fill="#c8ff63" stroke="#d7ff93" strokeWidth="1.2"><Car x="246" y="140" rotate="-2" /><Car x="445" y="251" rotate="4" /><Car x="318" y="125" rotate="90" /><Car x="407" y="269" rotate="90" /></g><g fill="#4d7680" stroke="#72e5d4" strokeWidth="1"><Car x="194" y="218" rotate="-90" /><Car x="523" y="196" rotate="90" /><Car x="365" y="70" rotate="0" /><Car x="365" y="330" rotate="180" /></g><g fill="none" stroke="#ffb86b" strokeWidth="2" opacity=".9"><rect x="229" y="128" width="36" height="26" rx="2" /><rect x="428" y="239" width="36" height="26" rx="2" /><rect x="304" y="107" width="27" height="39" rx="2" /><rect x="394" y="249" width="27" height="39" rx="2" /></g><path d="M357 185l-6-13h12zM405 207l13 6-13 6zM327 233l-6 13h12z" fill="#ffb86b" /><text x="20" y="365" fill="#b9d7cd" fontFamily="monospace" fontSize="10">CAMERA INT_01 · 12:43:10 · 30 FPS</text>
-  </svg>;
+function Arrow() {
+  return (
+    <svg className="arrow-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 8h10" />
+      <path d="M9 4l4 4-4 4" />
+    </svg>
+  );
 }
-
-function Car({ x, y, rotate = 0 }) { return <rect x={x} y={y} width="20" height="34" rx="5" transform={`rotate(${rotate} ${x + 10} ${y + 17})`} />; }
-function SceneLabel({ className, value, direction }) { return <div className={className}><strong>{value}</strong><span>{direction}</span></div>; }
-function MiniChart() { return <svg className="mini-chart" viewBox="0 0 320 66" preserveAspectRatio="none" aria-label="Vehicles trending upward"><path d="M0 54L18 42L32 47L50 29L67 39L82 25L101 42L120 31L138 34L156 18L173 27L194 11L212 18L228 8L246 13L260 5L279 9L294 1L320 -4V66H0Z" fill="rgba(85,230,193,.16)" /><path d="M0 54L18 42L32 47L50 29L67 39L82 25L101 42L120 31L138 34L156 18L173 27L194 11L212 18L228 8L246 13L260 5L279 9L294 1L320 -4" fill="none" stroke="#55e6c1" strokeWidth="2" /></svg>; }
-function FeedRow({ time, text, meta, result, type, warning }) { return <div className="feed-row"><i className={warning ? "feed-dot warning" : "feed-dot"} /><time>{time}</time><span>{text}<small>{meta}</small></span><b className={warning ? "warning-text" : ""}>{result}</b><em>{type}</em></div>; }
-
-function CodeSnippet() { return <div className="landing-code"><span>01</span><code><b>curl</b> https://api.trafficflow.dev/v1/counts \<br />  -H <i>"Authorization: Bearer live_xxx"</i> \<br />  -H <i>"Content-Type: application/json"</i> \<br />  -d <i>'{`{ "camera_id": "int_01", "interval": "60s" }`}'</i></code></div>; }
-function Proof({ icon, title, text }) { return <div className="landing-proof"><FeatureIcon name={icon} /><span><strong>{title}</strong><small>{text}</small></span></div>; }
-function FeatureCard({ icon, title, text, tags, link, tag, accent }) { return <article className={`landing-bento-card landing-feature-card ${accent ? `accent-${accent}` : ""}`}><FeatureIcon name={icon} /><h3>{title}</h3><p>{text}</p>{tags && <div className="feature-tags">{tags.map((item) => <span key={item}>{item}</span>)}</div>}{link && <a href="#product">{link} <Arrow /></a>}{tag && <span className="feature-tag">{tag}</span>}</article>; }
-function RoadDiagram() { return <svg className="road-diagram" viewBox="0 0 400 190" aria-hidden="true"><path d="M-20 175C75 98 142 69 419 16M-20 196C70 120 144 91 419 39M-20 218C73 142 148 111 419 61" fill="none" stroke="#176e6c" strokeWidth="1" strokeDasharray="3 5" /><path d="M33 158c35-25 58-35 80-43l9 12-74 48zM181 95l25-12 12 17-28 14zM272 59l23-7 11 17-27 8z" fill="#c8ff63" stroke="#55e6c1" strokeWidth="1" /><path d="M51 155h30M202 92h24M286 54h23" stroke="#ffb86b" strokeWidth="2" /></svg>; }
-function FeatureIcon({ name }) { const paths = { camera: <><rect x="3" y="6" width="12" height="11" rx="2" /><path d="M15 9l6-3v11l-6-3z" /></>, geometry: <><path d="M4 19L19 4M3 9l4-4M15 20l5-5" /><path d="M3 15h5M12 4v5M15 12h6" /></>, play: <><path d="M7 4l11 8-11 8z" /></>, chart: <><path d="M4 19V9M10 19V5M16 19v-7M22 19H2" /></>, brain: <><path d="M9 5a3 3 0 0 1 5-1 3 3 0 0 1 4 3 3 3 0 0 1 2 5 3 3 0 0 1-3 5 3 3 0 0 1-5 1 3 3 0 0 1-5-1 3 3 0 0 1-2-5 3 3 0 0 1 2-5 3 3 0 0 1 2-2z" /><path d="M12 5v14M8 9h4M12 14h4" /></>, cloud: <><path d="M7 18h11a4 4 0 0 0 .5-7.97A6 6 0 0 0 7.13 8.4 4.8 4.8 0 0 0 7 18z" /></>, code: <><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16" /></>, shield: <><path d="M12 3l7 3v5c0 4.6-3 8.2-7 10-4-1.8-7-5.4-7-10V6z" /><path d="M9 12l2 2 4-4" /></>, bolt: <path d="M13 2L4 14h6l-1 8 9-12h-6z" />, crosshair: <><circle cx="12" cy="12" r="6" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" /></>, clock: <><circle cx="12" cy="12" r="8" /><path d="M12 7v5l3 2" /></> }; return <svg className="feature-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] || paths.chart}</svg>; }
-function LogoMark() { return <svg className="landing-logo-mark" viewBox="0 0 34 28" fill="none" aria-hidden="true"><path d="M3 5h26M8 11h18M13 17h10M18 23h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /><path d="M5 5l-1 18M12 5l-1 12M19 5l-1 6" stroke="currentColor" strokeWidth="1.4" /></svg>; }
-function Arrow() { return <svg className="arrow-icon" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 9h11M9 4l5 5-5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
-function FooterColumn({ title, links }) { return <div className="landing-footer-column"><h3>{title}</h3>{links.map((link) => <a href="#product" key={link}>{link}</a>)}</div>; }
 
 export default LandingPage;

@@ -1,0 +1,86 @@
+# ==============================================================================
+# TrafficFlow Edge Cloud Compose for Orange Pi 5 (Rockchip RK3588)
+# Direct NPU hardware access via /dev/dri/renderD129 mapping
+# ==============================================================================
+
+version: "3.8"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: trafficflow_edge_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.opi5
+    container_name: trafficflow_edge_api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=production_edge
+      - AI_LOCAL=true
+      - MONGODB_LOCAL_FALLBACK=true
+      - LOCAL_DB_PATH=/app/storage/local_db.json
+      - REDIS_URL=redis://redis:6379/0
+      - STORAGE_DIR=/app/storage
+      - AI_MODEL_PATH=models/rknn/yolov8n_416_int8.rknn
+      - AI_IMGSZ=416
+      - AI_CONFIDENCE=0.25
+      - LIVE_READER_BACKEND=auto
+      - LIVE_FFMPEG_OUTPUT_FPS=30
+      - LIVE_FRAME_QUEUE_SIZE=1
+      - CELERY_QUEUE_NAME=trafficflow_gpu_queue
+    devices:
+      # Pass through the Rockchip NPU DRM device
+      - /dev/dri/renderD129:/dev/dri/renderD129
+      # Pass through USB / MIPI CSI video cameras if plugged in
+      - /dev/video0:/dev/video0
+    volumes:
+      - ../storage:/app/storage
+      - ../models:/app/models
+      - ../configs:/app/configs
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.opi5
+    container_name: trafficflow_edge_worker
+    restart: unless-stopped
+    command: celery -A worker.celery_app worker --pool=prefork --concurrency=2 -Q trafficflow_gpu_queue --loglevel=info
+    environment:
+      - APP_ENV=production_edge
+      - AI_LOCAL=true
+      - MONGODB_LOCAL_FALLBACK=true
+      - LOCAL_DB_PATH=/app/storage/local_db.json
+      - REDIS_URL=redis://redis:6379/0
+      - STORAGE_DIR=/app/storage
+      - AI_MODEL_PATH=models/rknn/yolov8n_416_int8.rknn
+      - AI_IMGSZ=416
+      - AI_CONFIDENCE=0.25
+      - CELERY_QUEUE_NAME=trafficflow_gpu_queue
+    devices:
+      - /dev/dri/renderD129:/dev/dri/renderD129
+    volumes:
+      - ../storage:/app/storage
+      - ../models:/app/models
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  redis_data:

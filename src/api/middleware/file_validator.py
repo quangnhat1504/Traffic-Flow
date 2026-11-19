@@ -5,7 +5,7 @@ from shared.config import settings
 def validate_video_file(file: UploadFile) -> UploadFile:
     """Validates the uploaded file size, extension and mime type."""
     # 1. Validate Extension
-    filename = file.filename or ""
+    filename = file.filename
     _, ext = os.path.splitext(filename.lower())
     if ext not in settings.ALLOWED_VIDEO_EXTENSIONS:
         raise HTTPException(

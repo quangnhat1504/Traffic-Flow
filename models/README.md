@@ -1,11 +1,9 @@
-# Legacy model path
+# Models
 
-Model weights are now colocated with the inference service under
-`inference/models/` and remain ignored by git. Put the default weight here:
+Local model weights live here and are ignored by git.
+
+Default Phase B model path:
 
 ```text
-inference/models/yolov8n.pt
+models/yolov8n.pt
 ```
-
-The runtime still accepts an older `models/<file>` configuration and resolves
-it to the canonical bundle first, then falls back to this legacy directory.

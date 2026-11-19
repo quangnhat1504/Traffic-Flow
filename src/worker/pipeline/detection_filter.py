@@ -1,42 +1,58 @@
-"""Shared detection filtering for live and batch tracking paths."""
+"""Detection filters used before local tracking."""
 
 from __future__ import annotations
 
-import copy
-from collections.abc import Iterable
+from typing import Iterable, List, Sequence
 
 import cv2
 import numpy as np
 
-
-def _point_in_zone(point: tuple[float, float], zone: Iterable[Iterable[float]], padding: float) -> bool:
-    points = list(zone or [])
-    if len(points) < 3:
-        return True
-    polygon = np.asarray(points, dtype=np.float32).reshape((-1, 1, 2))
-    if padding > 0:
-        center = np.mean(polygon[:, 0, :], axis=0)
-        x, y, width, height = cv2.boundingRect(polygon.astype(np.int32))
-        scale = 1.0 + (2.0 * padding / max(float(max(width, height)), 1.0))
-        polygon = (polygon - center) * scale + center
-    return cv2.pointPolygonTest(polygon, point, False) >= 0
+from worker.services.counting_service import bbox_bottom_center, point_in_polygon
 
 
-def filter_detections_for_tracking(
-    detections: list[dict], lanes: list[dict], padding_px: float = 0.0,
-) -> list[dict]:
-    """Keep detections whose bottom-center anchor is inside a lane zone."""
-    zones = [lane.get("valid_zone") for lane in lanes or [] if lane.get("valid_zone")]
-    if not zones:
-        return detections or []
+def _padded_polygon(points: Sequence[Sequence[float]], padding_px: float) -> list[list[float]]:
+    if not points or padding_px <= 0 or len(points) < 3:
+        return [[float(p[0]), float(p[1])] for p in points]
+    poly = np.array(points, dtype=np.float32)
+    centroid = poly.mean(axis=0)
+    vectors = poly - centroid
+    lengths = np.linalg.norm(vectors, axis=1, keepdims=True)
+    lengths[lengths == 0] = 1.0
+    expanded = poly + vectors / lengths * float(padding_px)
+    hull = cv2.convexHull(expanded.astype(np.float32)).reshape(-1, 2)
+    return [[float(x), float(y)] for x, y in hull]
 
-    filtered: list[dict] = []
-    for detection in detections or []:
-        bbox = detection.get("bbox_xyxy")
-        if not bbox or len(bbox) != 4:
+
+def filter_detections_for_tracking(detections: Iterable[dict], lanes: list[dict], padding_px: float = 0.0) -> list[dict]:
+    """Keep only detections whose bottom-center anchor belongs to a lane zone/class."""
+    if not lanes:
+        return list(detections)
+
+    lane_filters = []
+    for lane in lanes:
+        zone = lane.get("valid_zone") or []
+        if len(zone) < 3:
             continue
-        x1, y1, x2, y2 = (float(value) for value in bbox)
-        anchor = ((x1 + x2) / 2.0, y2)
-        if any(_point_in_zone(anchor, zone, float(padding_px or 0.0)) for zone in zones):
-            filtered.append(copy.deepcopy(detection))
-    return filtered
+        lane_filters.append({
+            "zone": _padded_polygon(zone, padding_px),
+            "allowed": set(lane.get("class_allowed") or []),
+        })
+    if not lane_filters:
+        return list(detections)
+
+    kept: List[dict] = []
+    for det in detections:
+        bbox = det.get("bbox_xyxy") or []
+        if len(bbox) != 4:
+            continue
+        anchor = bbox_bottom_center(bbox)
+        class_name = det.get("class_name")
+        for lane_filter in lane_filters:
+            if not point_in_polygon(anchor[0], anchor[1], lane_filter["zone"]):
+                continue
+            allowed = lane_filter["allowed"]
+            if allowed and class_name not in allowed:
+                continue
+            kept.append(det)
+            break
+    return kept

@@ -1,4 +1,7 @@
-const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || "")
+const API_BASE_URL = String(
+  import.meta.env.VITE_API_BASE_URL ||
+  (typeof window !== "undefined" && window.location.port === "5173" ? "http://127.0.0.1:8000" : "")
+)
   .trim()
   .replace(/\/+$/, "");
 
@@ -12,9 +15,8 @@ export function apiUrl(path) {
 }
 
 function assertApiConfiguration(path) {
-  if (import.meta.env.PROD && !API_BASE_URL && !ABSOLUTE_URL_PATTERN.test(path)) {
-    throw new Error("VITE_API_BASE_URL is not configured for this deployment.");
-  }
+  // Same-origin relative URLs are supported by FastAPI mounted frontend
+  return;
 }
 
 export async function apiRequest(path, options = {}) {

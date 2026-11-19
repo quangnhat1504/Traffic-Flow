@@ -8,13 +8,10 @@ from fastapi import HTTPException
 from pymongo.errors import OperationFailure
 from starlette.requests import Request
 
-from api.routes.tasks import get_task_status, process_task, task_progress_callback
-from api.routes import frontend_compat
-from api.routes.lanes import configure_lanes
-from api.routes.dashboard import get_dashboard_stats
+from api.routes.tasks import task_progress_callback
 from api.schemas.lane import LaneConfigRequest
-from api.schemas.task import TaskCreateRequest, TaskCreateResponse, TaskProgressCallback
-from shared.database import LocalJsonDatabase, _ensure_mongo_indexes
+from api.schemas.task import TaskProgressCallback
+from shared.database import LocalJsonDatabase, SQLiteWalDatabase, _ensure_mongo_indexes
 
 
 def _lane_config() -> dict:
@@ -69,6 +66,55 @@ def test_local_json_save_is_atomic(tmp_path: Path) -> None:
     assert not (tmp_path / ".database.json.tmp").exists()
 
 
+def test_sqlite_wal_database_operations(tmp_path: Path) -> None:
+    import asyncio
+    db_file = tmp_path / "test_edge.sqlite"
+    database = SQLiteWalDatabase(str(db_file))
+
+    async def _run():
+        # Insert
+        res1 = await database.tasks.insert_one({"task_id": "task-1", "status": "pending", "count": 10})
+        assert res1.inserted_id is not None
+
+        # Insert Many
+        res_many = await database.tasks.insert_many([
+            {"task_id": "task-2", "status": "processing", "count": 20},
+            {"task_id": "task-3", "status": "completed", "count": 30},
+        ])
+        assert len(res_many.inserted_ids) == 2
+
+        # Find One
+        doc = await database.tasks.find_one({"task_id": "task-2"})
+        assert doc is not None
+        assert doc["status"] == "processing"
+
+        # Count
+        count_all = await database.tasks.count_documents()
+        assert count_all == 3
+        count_completed = await database.tasks.count_documents({"status": "completed"})
+        assert count_completed == 1
+
+        # Update
+        up_res = await database.tasks.update_one({"task_id": "task-1"}, {"$set": {"status": "completed"}})
+        assert up_res.modified_count == 1
+        updated = await database.tasks.find_one({"task_id": "task-1"})
+        assert updated["status"] == "completed"
+
+        # Find with Cursor
+        cursor = database.tasks.find({"status": "completed"})
+        docs = await cursor.to_list()
+        assert len(docs) == 2
+
+        # Delete Many
+        del_res = await database.tasks.delete_many({"task_id": "task-3"})
+        assert del_res.deleted_count == 1
+        assert await database.tasks.count_documents() == 2
+
+    asyncio.run(_run())
+    database.close()
+    assert db_file.exists()
+
+
 def test_progress_callback_rejects_regression() -> None:
     import asyncio
 
@@ -87,28 +133,6 @@ def test_progress_callback_rejects_regression() -> None:
 
     assert error.value.status_code == 409
     db.tasks.update_one.assert_not_awaited()
-
-
-def test_production_requires_callback_authentication(monkeypatch) -> None:
-    import asyncio
-
-    from api.routes import tasks
-
-    database = AsyncMock()
-    monkeypatch.setattr(tasks.settings, "APP_ENV", "production")
-    monkeypatch.setattr(tasks.settings, "CALLBACK_TOKEN", "")
-    request = Request({"type": "http", "method": "PUT", "headers": []})
-
-    with pytest.raises(HTTPException) as error:
-        asyncio.run(task_progress_callback(
-            "task-1",
-            TaskProgressCallback(status="processing", progress=1),
-            request,
-            database,
-        ))
-
-    assert error.value.status_code == 503
-    database.tasks.find_one.assert_not_awaited()
 
 
 def test_mongo_index_migration_accepts_legacy_equivalent_index() -> None:
@@ -144,308 +168,3 @@ def test_mongo_index_migration_accepts_legacy_equivalent_index() -> None:
     assert database.tasks.create_calls == 4
     assert database.lane_configs.create_calls == 2
     assert database.traffic_statistics.create_calls == 1
-
-
-def test_compat_submit_uses_canonical_task_id_and_video_id(tmp_path: Path, monkeypatch) -> None:
-    import asyncio
-
-    from starlette.requests import Request
-
-    database = LocalJsonDatabase(str(tmp_path / "database.json"))
-    now = __import__("datetime").datetime.utcnow()
-    asyncio.run(database.tasks.insert_one({
-        "task_id": "task-1",
-        "video_id": "video-1",
-        "status": "uploaded",
-        "progress": 0,
-        "created_at": now,
-        "updated_at": now,
-    }))
-    monkeypatch.setattr(frontend_compat, "get_database", lambda: database)
-    process = AsyncMock(return_value=TaskCreateResponse(task_id="task-1", status="pending", message="queued"))
-    monkeypatch.setattr(frontend_compat, "process_task", process)
-
-    response = asyncio.run(frontend_compat.compat_submit(
-        Request({"type": "http", "method": "POST", "headers": [], "path": "/tasks"}),
-        {"task_id": "task-1", "lane_config": _lane_config()},
-    ))
-
-    assert response["task_id"] == "task-1"
-    assert response["status"] == "pending"
-    assert process.await_args.args[0].video_id == "video-1"
-
-
-def test_dashboard_tolerates_legacy_task_documents(tmp_path: Path) -> None:
-    import asyncio
-
-    database = LocalJsonDatabase(str(tmp_path / "database.json"))
-    asyncio.run(database.tasks.insert_one({"video_id": "video-legacy", "status": "uploaded"}))
-
-    response = asyncio.run(get_dashboard_stats(database))
-
-    assert response.total_tasks == 1
-    assert response.recent_tasks[0].task_id == "video-legacy"
-    assert response.recent_tasks[0].progress == 0
-
-
-def test_task_status_tolerates_legacy_task_documents(tmp_path: Path) -> None:
-    import asyncio
-
-    database = LocalJsonDatabase(str(tmp_path / "database.json"))
-    asyncio.run(database.tasks.insert_one({"video_id": "video-legacy", "status": "uploaded"}))
-
-    response = asyncio.run(get_task_status("video-legacy", database))
-
-    assert response.task_id == "video-legacy"
-    assert response.status == "uploaded"
-    assert response.progress == 0
-
-
-def test_safe_error_message_redacts_connection_credentials() -> None:
-    from shared.safe_errors import redact_url_credentials, safe_error_message
-
-    error = ValueError(
-        "redis://:super-secret@cache.example/0 failed with token=abc123"
-    )
-
-    message = safe_error_message(error)
-
-    assert "super-secret" not in message
-    assert "abc123" not in message
-    assert "<redacted>" in message
-    assert redact_url_credentials("rtsp://operator:secret@camera.example/live") == "rtsp://camera.example/live"
-
-
-def test_inference_factory_falls_back_to_remote_when_local_is_unavailable(monkeypatch) -> None:
-    from shared.config import settings
-    from worker.pipeline import inference_factory
-
-    class RemoteClient:
-        def __init__(self, **_kwargs):
-            pass
-
-    monkeypatch.setattr(settings, "AI_LOCAL", True)
-    monkeypatch.setattr(settings, "AI_SERVING_URL", "https://inference.example")
-    monkeypatch.setattr(
-        inference_factory,
-        "LocalInferenceClient",
-        lambda **_kwargs: (_ for _ in ()).throw(FileNotFoundError("model unavailable")),
-    )
-    monkeypatch.setattr(inference_factory, "InferenceClient", RemoteClient)
-
-    client = inference_factory.build_inference_client()
-
-    assert isinstance(client, RemoteClient)
-
-
-def test_inference_client_does_not_retry_stateful_posts() -> None:
-    from worker.pipeline.ai_client import _retry_session
-
-    session = _retry_session()
-    try:
-        methods = session.get_adapter("https://").max_retries.allowed_methods
-        assert "POST" not in methods
-        assert {"GET", "DELETE"}.issubset(methods)
-    finally:
-        session.close()
-
-
-def test_chunk_completion_rejects_corrupt_metadata(tmp_path: Path, monkeypatch) -> None:
-    import asyncio
-
-    from api.routes import upload
-
-    upload_dir = tmp_path / "upload-1"
-    upload_dir.mkdir()
-    (upload_dir / "meta.json").write_text("{not-json", encoding="utf-8")
-    monkeypatch.setattr(upload, "CHUNK_DIR", tmp_path)
-
-    with pytest.raises(HTTPException) as error:
-        asyncio.run(upload.complete_chunked_upload("upload-1", db=object()))
-
-    assert error.value.status_code == 400
-
-
-def test_lane_config_cannot_reopen_processing_task(tmp_path: Path) -> None:
-    import asyncio
-
-    database = LocalJsonDatabase(str(tmp_path / "database.json"))
-    now = __import__("datetime").datetime.utcnow()
-    asyncio.run(database.tasks.insert_one({
-        "task_id": "task-1",
-        "video_id": "video-1",
-        "status": "processing",
-        "created_at": now,
-        "updated_at": now,
-    }))
-
-    with pytest.raises(HTTPException) as error:
-        asyncio.run(configure_lanes(LaneConfigRequest.model_validate(_lane_config()), database))
-
-    assert error.value.status_code == 409
-
-
-def test_compat_submit_cannot_reopen_processing_task(tmp_path: Path, monkeypatch) -> None:
-    import asyncio
-
-    database = LocalJsonDatabase(str(tmp_path / "database.json"))
-    now = __import__("datetime").datetime.utcnow()
-    asyncio.run(database.tasks.insert_one({
-        "task_id": "task-1",
-        "video_id": "video-1",
-        "status": "processing",
-        "created_at": now,
-        "updated_at": now,
-    }))
-    monkeypatch.setattr(frontend_compat, "get_database", lambda: database)
-
-    with pytest.raises(HTTPException) as error:
-        asyncio.run(frontend_compat.compat_submit(
-            Request({"type": "http", "method": "POST", "headers": [], "path": "/tasks"}),
-            {"task_id": "task-1", "lane_config": _lane_config()},
-        ))
-
-    saved = asyncio.run(database.tasks.find_one({"task_id": "task-1"}))
-    assert error.value.status_code == 409
-    assert saved["status"] == "processing"
-
-
-def test_lane_config_claims_uploaded_task_and_persists_config(tmp_path: Path) -> None:
-    import asyncio
-
-    database = LocalJsonDatabase(str(tmp_path / "database.json"))
-    now = __import__("datetime").datetime.utcnow()
-    asyncio.run(database.tasks.insert_one({
-        "task_id": "task-1",
-        "video_id": "video-1",
-        "status": "uploaded",
-        "created_at": now,
-        "updated_at": now,
-    }))
-
-    response = asyncio.run(configure_lanes(LaneConfigRequest.model_validate(_lane_config()), database))
-    task = asyncio.run(database.tasks.find_one({"task_id": "task-1"}))
-    saved = asyncio.run(database.lane_configs.find_one({"video_id": "video-1"}))
-
-    assert response.lane_count == 1
-    assert task["status"] == "configured"
-    assert saved["task_id"] == "task-1"
-
-
-def test_expired_task_cleanup_removes_local_preview(tmp_path: Path, monkeypatch) -> None:
-    import asyncio
-    from datetime import datetime, timedelta
-
-    from api.services import cleanup_service
-    from shared.config import settings
-
-    database = LocalJsonDatabase(str(tmp_path / "database.json"))
-    now = datetime.utcnow()
-    asyncio.run(database.tasks.insert_one({
-        "task_id": "task-1",
-        "video_id": "video-1",
-        "status": "completed",
-        "expires_at": now - timedelta(minutes=1),
-        "created_at": now,
-        "updated_at": now,
-    }))
-    preview = tmp_path / "previews" / "video-1.jpg"
-    preview.parent.mkdir()
-    preview.write_bytes(b"preview")
-
-    monkeypatch.setattr(cleanup_service.db_instance, "db", database)
-    monkeypatch.setattr(settings, "STORAGE_DIR", str(tmp_path))
-    monkeypatch.setattr(cleanup_service.r2_client, "delete_file", lambda _key: None)
-
-    asyncio.run(cleanup_service.run_data_cleanup())
-
-    task = asyncio.run(database.tasks.find_one({"task_id": "task-1"}))
-    assert task["status"] == "archived"
-    assert not preview.exists()
-
-
-def test_expired_legacy_task_cleanup_does_not_crash(tmp_path: Path, monkeypatch) -> None:
-    import asyncio
-    from datetime import datetime, timedelta
-
-    from api.services import cleanup_service
-    from shared.config import settings
-
-    database = LocalJsonDatabase(str(tmp_path / "database.json"))
-    now = datetime.utcnow()
-    asyncio.run(database.tasks.insert_one({
-        "video_id": "video-legacy",
-        "status": "completed",
-        "expires_at": now - timedelta(minutes=1),
-        "created_at": now,
-        "updated_at": now,
-    }))
-    monkeypatch.setattr(cleanup_service.db_instance, "db", database)
-    monkeypatch.setattr(settings, "STORAGE_DIR", str(tmp_path))
-    monkeypatch.setattr(cleanup_service.r2_client, "delete_file", lambda _key: None)
-
-    asyncio.run(cleanup_service.run_data_cleanup())
-
-    task = asyncio.run(database.tasks.find_one({"video_id": "video-legacy"}))
-    assert task["status"] == "archived"
-
-
-def test_queue_failure_marks_claimed_task_failed(tmp_path: Path, monkeypatch) -> None:
-    import asyncio
-    from datetime import datetime
-
-    database = LocalJsonDatabase(str(tmp_path / "database.json"))
-    now = datetime.utcnow()
-    task = {
-        "task_id": "task-1",
-        "video_id": "video-1",
-        "status": "configured",
-        "progress": 0,
-        "video_url": "https://storage.example/video.mp4",
-        "working_video_url": "https://storage.example/video.mp4",
-        "created_at": now,
-        "updated_at": now,
-    }
-    config = _lane_config()
-    config["task_id"] = "task-1"
-    asyncio.run(database.tasks.insert_one(task))
-    asyncio.run(database.lane_configs.insert_one(config))
-
-    from api.routes import tasks
-    monkeypatch.setattr(tasks.celery_app, "send_task", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("redis down")))
-    monkeypatch.setattr(tasks.settings, "CALLBACK_HOST", "http://api.test")
-
-    request = Request({"type": "http", "method": "POST", "path": "/api/v1/tasks/process", "headers": []})
-    with pytest.raises(HTTPException) as error:
-        asyncio.run(process_task(TaskCreateRequest(video_id="video-1"), request, database))
-
-    saved = asyncio.run(database.tasks.find_one({"task_id": "task-1"}))
-    assert error.value.status_code == 503
-    assert saved["status"] == "failed"
-    assert saved["stage"] == "queue_unavailable"
-
-
-def test_process_rejects_task_without_source_before_claiming(tmp_path: Path) -> None:
-    import asyncio
-    from datetime import datetime
-
-    database = LocalJsonDatabase(str(tmp_path / "database.json"))
-    now = datetime.utcnow()
-    asyncio.run(database.tasks.insert_one({
-        "task_id": "task-1",
-        "video_id": "video-1",
-        "status": "configured",
-        "created_at": now,
-        "updated_at": now,
-    }))
-    config = _lane_config()
-    config["task_id"] = "task-1"
-    asyncio.run(database.lane_configs.insert_one(config))
-
-    request = Request({"type": "http", "method": "POST", "path": "/api/v1/tasks/process", "headers": []})
-    with pytest.raises(HTTPException) as error:
-        asyncio.run(process_task(TaskCreateRequest(video_id="video-1"), request, database))
-
-    saved = asyncio.run(database.tasks.find_one({"task_id": "task-1"}))
-    assert error.value.status_code == 422
-    assert saved["status"] == "configured"

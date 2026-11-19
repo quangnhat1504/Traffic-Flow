@@ -1,43 +1,24 @@
-# Documentation
+# Danh Mục Tài Liệu Kỹ Thuật (TrafficFlow Edge AI)
 
-TrafficFlow has detailed engineering notes, but the recommended reading path is short. Start with the docs below and use the wiki/raw notes only when you need audit history.
+Tài liệu dự án được tổ chức phân tầng rõ ràng theo chuẩn công nghệ phân tán và tính toán biên:
 
-## Recommended Reading
+---
 
-| Need | Start with | Why |
-|---|---|---|
-| Project overview | [portfolio/project-overview.md](portfolio/project-overview.md) | Short team summary, contribution areas, and measured results |
-| Team scope | [portfolio/project-scope-and-ownership.md](portfolio/project-scope-and-ownership.md) | Separates team-owned product work from the AI/CV contribution area |
-| AI pipeline details | [portfolio/ai-pipeline.md](portfolio/ai-pipeline.md) and [portfolio/benchmark-methodology.md](portfolio/benchmark-methodology.md) | Explains the pipeline, split policy, metrics, and leakage controls |
-| Runtime details | [portfolio/runtime-optimization-case-study.md](portfolio/runtime-optimization-case-study.md) | Explains live/HLS scheduling and measured stability |
-| Local setup | [LOCAL_DEVELOPMENT.md](LOCAL_DEVELOPMENT.md) | Native Node.js + Python setup |
-| API integrator | [API_INTEGRATION.md](API_INTEGRATION.md) and [contracts/](contracts/) | Endpoint, callback, lane config, and result contracts |
+## 1. Bản Đồ Tài Liệu (Documentation Map)
 
-## Evidence Reports
+| Danh mục | Thư mục / Tập tin | Nội dung chính |
+| :--- | :--- | :--- |
+| **Kiến Trúc & Sơ Đồ** | [architecture/README.md](architecture/README.md) | Sơ đồ hệ thống Excalidraw, luồng xử lý video và biên dịch RKNN |
+| **Đồ Thị Tri Thức** | [knowledge_graph/](knowledge_graph/) | Design-OS Universal Knowledge Pipeline, UKMC.v1 Stopping Gate |
+| **Quản Trị & Tiêu Chí** | [governance/](governance/) | Tiêu chí chấm điểm benchmark, Roster đội ngũ Agent, Lộ trình dài hạn |
+| **Triển Khai Biên** | [deployment/ORANGE_PI_5_DEPLOYMENT_GUIDE.md](deployment/ORANGE_PI_5_DEPLOYMENT_GUIDE.md) | Triển khai NPU Rockchip RK3588, Docker ARM64, Tailscale proxy |
+| **Vận Hành Offline** | [deployment/LOCAL_OFFLINE_SETUP.md](deployment/LOCAL_OFFLINE_SETUP.md) | Chế độ Local Sovereign Mode với SQLite WAL, zero-cloud fallback |
+| **Hướng Dẫn Sử Dụng** | [HUONG_DAN_SU_DUNG.md](HUONG_DAN_SU_DUNG.md) | Sổ tay vận hành API, Studio vẽ làn đường Canvas, HLS streaming |
+| **Hợp Đồng API** | [contracts/API_CONTRACTS.md](contracts/API_CONTRACTS.md) | Đặc tả JSON Schema cho REST endpoints, Task lifecycle & Video counting |
+| **Nhật Ký Xác Nhận** | [DESIGN_QUESTIONS_AND_CONFIRMATIONS.md](DESIGN_QUESTIONS_AND_CONFIRMATIONS.md) | Ghi nhận quyết định kỹ thuật và phản hồi của người dùng |
 
-| Report | Covers |
-|---|---|
-| [reports/phase-04-detection-benchmark.md](reports/phase-04-detection-benchmark.md) | Detector comparison and selected YOLOv8m result |
-| [reports/end-to-end-bytetrack-production-comparison.md](reports/end-to-end-bytetrack-production-comparison.md) | Final direct ByteTrack vs production re-tracker comparison |
-| [reports/phase-07-upload-runtime.md](reports/phase-07-upload-runtime.md) | Uploaded-video runtime throughput |
-| [reports/phase-08-live-runtime.md](reports/phase-08-live-runtime.md) | Live/HLS 30-minute soak |
-| [reports/phase-09-ablation-error-analysis.md](reports/phase-09-ablation-error-analysis.md) | Error taxonomy and known evidence gaps |
+---
 
-## Repository Layout
-
-```text
-src/api/        FastAPI routes, schemas, and services
-src/worker/     Celery tasks and video pipeline
-src/tfengine/   Shared AI/runtime engine
-frontend/       React + Vite application
-benchmark/      Benchmark parsers, runners, metrics, and configuration
-scripts/        Local orchestration, preflight, and utility scripts
-```
-
-## Documentation Classification
-
-- `docs/portfolio/`: curated project docs for general readers and technical reviewers.
-- `docs/reports/`: concise public summaries of benchmark phases and final review.
-- `docs/contracts/`: API and data contracts that should not change casually.
-- `docs/wiki/`: detailed project memory and design history.
-- `docs/raw/`: source notes and meeting/planning inputs; not first-read material.
+## 2. Tiêu Chuẩn Lưu Trữ
+- Toàn bộ ghi chú cũ, sprint log không còn sử dụng được đưa vào `docs/archive/` để giữ không gian ngữ cảnh (agent context) luôn tinh gọn và chính xác.
+- Mọi sơ đồ kỹ thuật mới được lưu trữ tại `docs/architecture/figures/` với đầy đủ 4 định dạng: `.excalidraw` (nguồn vector mở), `.svg` (vector web), `-light.png` và `-dark.png` (ảnh hiển thị GitHub).

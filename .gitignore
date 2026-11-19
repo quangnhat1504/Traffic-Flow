@@ -5,6 +5,19 @@ __pycache__/
 .venv-gpu/
 venv/
 .env
+.env.*
+!.env.example
+!.env.cloud.example
+
+# Local tools and binaries
+tools/
+
+# Model binaries (weights should be hosted on releases / cloud storage / edge boards)
+*.pt
+*.onnx
+*.rknn
+weights/
+repos/
 
 # Old ref moved to src/tfengine/
 trafficflow/
@@ -18,6 +31,11 @@ Thumbs.db
 .vscode/
 .idea/
 .codex/
+.agents/
+.commandcode/
+.agent_scratchpad.md
+.git-rewrite-backup/
+src/*.egg-info/
 
 # Benchmark data and generated outputs
 data/raw_videos/*.mp4
@@ -40,13 +58,40 @@ outputs/
 kaggle.json
 **/access_token
 
-# External cloned model repos
-repos/
-weights/
-*.pt
+# Local runtime/debug artifacts
+scratch/
+runs/
+storage/
+test.mp4
+*.log
+
+# Benchmark local datasets and generated artifacts
+benchmark/detrac/ua-detrac-orig/
+benchmark/detrac/ua-detrac-orig.zip
+benchmark/detrac/videos/
+benchmark/predictions/
+benchmark/runs/
+benchmark/ground_truth/
+benchmark/**/__pycache__/
+benchmark/annotation/frames/
+benchmark/annotation/manual_overlays/
+benchmark/annotation/*.jpg
+benchmark/annotation/*.png
+benchmark/reports/**/*.mp4
+benchmark/reports/**/*.avi
+benchmark/reports/**/*.mov
+benchmark/reports/phase09_error_frames/
+benchmark/reports/MVI_*
+benchmark/reports/optimized-*
+benchmark/reports/summary.*
+benchmark/reports/summary_*.csv
+benchmark/reports/benchmark_report.md
+
+# Showcase build artifacts
+showcase/node_modules/
+showcase/output/
+showcase/raw/
+showcase/audio/*.wav
 
 # Node
 node_modules/
-
-# Runtime-generated local storage and upload chunks
-storage/

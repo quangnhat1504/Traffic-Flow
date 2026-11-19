@@ -4,8 +4,8 @@ import re
 import tempfile
 from pathlib import Path
 from datetime import datetime
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status, Form
-from shared.database import get_database
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Request, status, Form
+from api.dependencies import require_database
 from api.middleware.file_validator import validate_video_file
 from api.services.upload_service import create_uploaded_video_task_from_path, save_upload_to_temp
 from api.schemas.upload import UploadResponse
@@ -99,10 +99,9 @@ async def upload_chunk(
 @router.post("/video/chunk/{upload_id}/complete")
 async def complete_chunked_upload(
     upload_id: str,
-    db=Depends(get_database),
+    request: Request,
+    db=Depends(require_database),
 ):
-    if db is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database is not connected")
     _validate_upload_id(upload_id)
     upload_dir = CHUNK_DIR / upload_id
     if not upload_dir.exists():
@@ -112,20 +111,9 @@ async def complete_chunked_upload(
     if not meta_path.exists():
         raise HTTPException(400, "Missing metadata")
 
-    try:
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise HTTPException(400, "Upload metadata is invalid") from exc
-    if not isinstance(meta, dict):
-        raise HTTPException(400, "Upload metadata is invalid")
-    total_chunks = meta.get("total_chunks")
+    meta = json.loads(meta_path.read_text())
+    total_chunks = meta["total_chunks"]
     filename = meta.get("filename", "video.mp4")
-    if (
-        isinstance(total_chunks, bool)
-        or not isinstance(total_chunks, int)
-        or not isinstance(filename, str)
-    ):
-        raise HTTPException(400, "Upload metadata is invalid")
     _validate_chunk_request(upload_id, 0, total_chunks, filename)
 
     # Reassemble
@@ -159,6 +147,7 @@ async def complete_chunked_upload(
         temp_video.close()
 
         uploaded = await create_uploaded_video_task_from_path(
+            request=request,
             db=db,
             video_path=temp_path,
             content_type="video/mp4",
@@ -181,18 +170,18 @@ async def complete_chunked_upload(
 
 @router.post("/video", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_video(
+    request: Request,
     file: UploadFile = Depends(validate_video_file),
-    db = Depends(get_database)
+    db = Depends(require_database)
 ):
     """Uploads video file, extracts first frame, saves both to Cloudflare R2,
     and initializes a task document in MongoDB.
     """
-    if db is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database is not connected")
     try:
         temp_path = await save_upload_to_temp(file)
         try:
             uploaded = await create_uploaded_video_task_from_path(
+                request=request,
                 db=db,
                 video_path=temp_path,
                 content_type=file.content_type or "video/mp4",
@@ -210,9 +199,7 @@ async def upload_video(
     except HTTPException as he:
         raise he
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).exception("Single-file upload failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred while uploading the video.",
-        ) from e
+            detail=f"An error occurred while uploading: {str(e)}"
+        )

@@ -28,11 +28,12 @@ def _detect_device() -> str:
     return "cpu"
 
 
-def _parse_class_ids(raw: str) -> list:
+def _parse_class_ids(raw: str) -> Optional[list[int]]:
     if not raw:
         return None
     try:
-        return [int(x.strip()) for x in raw.split(",") if x.strip()]
+        class_ids = [int(x.strip()) for x in raw.split(",") if x.strip()]
+        return class_ids or None
     except (ValueError, TypeError):
         return None
 
@@ -50,19 +51,21 @@ def _parse_class_name_map(raw: str) -> dict[int, str]:
         except ValueError:
             continue
     return mapping
+
+
 class LocalInferenceClient:
     """Wraps YOLO + ByteTrack locally with GPU acceleration when available."""
 
     def __init__(self, model_path: str = None,
                  confidence: float = None, max_workers: int = 1,
-                 imgsz: int = None):
+                 imgsz: Optional[int] = None):
         from tfengine.core_ai import YoloByteTrackDetector
         device = _detect_device()
         self._detector = YoloByteTrackDetector(
-            model_path=model_path or settings.resolved_model_path(),
+            model_path=model_path or settings.AI_MODEL_PATH,
             confidence=confidence if confidence is not None else settings.AI_CONFIDENCE,
             device=device,
-            imgsz=imgsz or settings.AI_IMGSZ,
+            imgsz=imgsz if imgsz is not None else settings.AI_IMGSZ,
             half=settings.AI_HALF and device != "cpu",
             class_ids=_parse_class_ids(settings.AI_CLASS_IDS),
             class_name_map=_parse_class_name_map(settings.AI_CLASS_NAME_MAP),

@@ -1,0 +1,85 @@
+# ==============================================================================
+# TrafficFlow Edge Cloud Dockerfile for Orange Pi 5 (Rockchip RK3588 ARM64)
+# Unlocks 6.0 TOPS Tri-Core NPU via /dev/dri/renderD129 & rknn-toolkit-lite2
+# ==============================================================================
+
+FROM python:3.11-slim-bookworm
+
+LABEL maintainer="TrafficFlow Edge AI Team"
+LABEL target_hardware="Orange Pi 5 (Rockchip RK3588S)"
+LABEL architecture="linux/arm64"
+
+WORKDIR /app
+
+# 1. System packages for OpenCV, FFmpeg, and Rockchip NPU runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    ffmpeg \
+    libgl1 \
+    libglib2.0-0 \
+    libgomp1 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Install Python core dependencies (Edge lightweight stack)
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir \
+        fastapi>=0.115.6,<0.116 \
+        "uvicorn[standard]>=0.32,<0.34" \
+        celery>=5.3.0 \
+        redis>=5.0.0 \
+        numpy>=1.24.0 \
+        "opencv-python-headless==4.10.0.84" \
+        python-multipart>=0.0.9 \
+        pydantic>=2.0.0 \
+        pydantic-settings>=2.0.0 \
+        python-dotenv>=0.21.0 \
+        requests>=2.31.0 \
+        urllib3>=2.0.0 \
+        yt-dlp>=2025.0.0 \
+        scipy>=1.10.0
+
+# 3. Install Rockchip RKNN Toolkit Lite 2 for RK3588 NPU (ARM64 wheel)
+# Note: On Orange Pi 5, rknn-toolkit-lite2 wheel is either mounted or installed from PyPI/wheel
+RUN pip install --no-cache-dir rknn-toolkit-lite2==2.5.0 || \
+    echo "rknn-toolkit-lite2 not available on public index, using local wheels or mounted environment"
+
+# 4. Copy source code and configurations
+COPY src/ /app/src/
+COPY configs/ /app/configs/
+COPY models/ /app/models/
+COPY docs/ /app/docs/
+
+# 5. Create storage directories for local sovereign operation
+RUN mkdir -p /app/storage/uploads \
+             /app/storage/previews \
+             /app/storage/results \
+             /app/storage/chunks \
+             /app/storage/live_previews
+
+# 6. Environment configuration for Edge Sovereign Mode
+ENV PYTHONPATH=/app/src
+ENV APP_ENV=production_edge
+ENV AI_LOCAL=true
+ENV MONGODB_LOCAL_FALLBACK=true
+ENV LOCAL_DB_PATH=/app/storage/local_db.json
+ENV REDIS_URL=redis://redis:6379/0
+ENV STORAGE_DIR=/app/storage
+ENV AI_MODEL_PATH=models/rknn/yolov8n_416_int8.rknn
+ENV AI_IMGSZ=416
+ENV AI_CONFIDENCE=0.25
+ENV CELERY_QUEUE_NAME=trafficflow_gpu_queue
+
+# Expose API port
+EXPOSE 8000
+
+# Healthcheck verifying HTTP service
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
+
+# Start FastAPI server
+CMD ["python", "-m", "uvicorn", "api.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

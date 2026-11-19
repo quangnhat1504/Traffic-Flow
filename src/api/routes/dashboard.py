@@ -1,46 +1,34 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from datetime import datetime
-from shared.database import get_database
+from api.dependencies import require_database
 from api.schemas.dashboard import DashboardStatsResponse, RecentTask
 
 router = APIRouter()
 
 @router.get("/stats", response_model=DashboardStatsResponse)
-async def get_dashboard_stats(db = Depends(get_database)):
+async def get_dashboard_stats(db = Depends(require_database)):
     """Aggregates metrics for the frontend control dashboard."""
-    if db is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database is not connected")
     # 1. Counts of tasks by status
     total_tasks = await db.tasks.count_documents({})
-    completed_tasks = await db.tasks.count_documents({"status": {"$in": ["completed", "succeeded"]}})
+    completed_tasks = await db.tasks.count_documents({"status": "completed"})
     failed_tasks = await db.tasks.count_documents({"status": "failed"})
     
-    # Include the states exposed by both the canonical task API and the
-    # compatibility adapter. A configured task is not running yet, but it is
-    # still active work from the operator's point of view.
-    processing_tasks = await db.tasks.count_documents({"status": {"$in": ["configured", "queued", "pending", "processing"]}})
+    # "processing" states: pending + processing
+    processing_tasks = await db.tasks.count_documents({"status": {"$in": ["pending", "processing"]}})
 
     # 2. Fetch 10 most recent tasks
     cursor = db.tasks.find({}).sort("created_at", -1).limit(10)
     recent_tasks_docs = await cursor.to_list(length=10)
     
-    recent_tasks = []
-    for task in recent_tasks_docs:
-        task_id = task.get("task_id") or task.get("video_id")
-        if not task_id:
-            continue
-        try:
-            progress = int(task.get("progress") or 0)
-        except (TypeError, ValueError):
-            progress = 0
-        recent_tasks.append(
-            RecentTask(
-                task_id=task_id,
-                status=task.get("status") or "unknown",
-                progress=progress,
-                created_at=task.get("created_at") or task.get("updated_at") or datetime.utcnow(),
-            )
+    recent_tasks = [
+        RecentTask(
+            task_id=task["task_id"],
+            status=task["status"],
+            progress=task["progress"],
+            created_at=task["created_at"]
         )
+        for task in recent_tasks_docs
+    ]
 
     # 3. Aggregate vehicle counts across all statistics by type
     pipeline = [
@@ -56,12 +44,9 @@ async def get_dashboard_stats(db = Depends(get_database)):
 
     vehicle_totals = {}
     for result in aggr_results:
-        v_type = result.get("_id")
-        total_count = int(result.get("total_count") or 0)
-        # Some legacy worker payloads stored a summary row as vehicle_type
-        # ``total``. It is not a vehicle class and must not leak into the
-        # class breakdown shown by the dashboard.
-        if v_type and str(v_type).lower() not in {"total", "all"} and total_count > 0:
+        v_type = result["_id"]
+        total_count = result["total_count"]
+        if v_type:
             vehicle_totals[v_type] = total_count
 
     return DashboardStatsResponse(

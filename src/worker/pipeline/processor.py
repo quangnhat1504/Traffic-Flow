@@ -92,30 +92,37 @@ class FrameTransform:
         return result
 
 
+from worker.pipeline.stabilizer import TrafficStabilizer
+
 class FrameProcessor:
     """Transforms a raw video frame into an AI-ready 640×640 letterboxed JPEG.
 
     Pipeline order (roi_crop mode):
-      1. Camera stabilization (phase-correlation warp)
-      2. ROI crop to bounding rect
-      3. Polygon mask (optional, within crop)
-      4. Letterbox/pad to ROI_INPUT_SIZE × ROI_INPUT_SIZE
-      5. JPEG encode
+      1. Real-time lightweight camera stabilization (TrafficStabilizer)
+      2. ROI crop to bounding rect (with 10% padding)
+      3. Letterbox/pad to ROI_INPUT_SIZE × ROI_INPUT_SIZE
+      4. JPEG encode
 
     Returns FrameTransform for correct coordinate remap.
     """
 
     def __init__(self, roi_input_size: int = 640,
-                 roi_mode: str = "roi_crop",
+                 roi_mode: str = "crop_rect",
                  enable_stabilization: bool = True):
         self.roi_input_size = roi_input_size
         self.roi_mode = roi_mode
         self.enable_stabilization = enable_stabilization
-        self._ref_gray: Optional[np.ndarray] = None
+        self.stabilizer = TrafficStabilizer(
+            analysis_width=320,
+            smoothing_radius=0.88,
+            max_correction_px=24.0,
+            enabled=enable_stabilization,
+        )
 
     def set_reference_frame(self, frame: np.ndarray):
-        self._ref_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32)
-        logger.info(f"Reference frame captured ({frame.shape[1]}x{frame.shape[0]})")
+        if frame is not None:
+            self.stabilizer.set_reference_frame(frame)
+            logger.info(f"Stabilizer reference frame captured ({frame.shape[1]}x{frame.shape[0]})")
 
     def process_for_ai(self, frame: np.ndarray,
                        crop_rect: Optional[Tuple[int, int, int, int]] = None,
@@ -129,18 +136,18 @@ class FrameProcessor:
             poly_mask: Integer polygon points (N×2) in cropped coords or None.
 
         Returns:
-            cropped_frame: Frame after crop + mask (before letterbox), for overlay rendering.
+            cropped_frame: Frame after crop (before letterbox), for overlay rendering.
             ai_frame: The letterboxed 640×640 JPEG-ready frame.
             transform: FrameTransform for coordinate remap.
         """
-        # 1. Stabilization
-        if self.enable_stabilization and self._ref_gray is not None:
-            frame = self._stabilize(frame)
+        # 1. High-Performance Lightweight Camera Stabilization
+        if self.enable_stabilization:
+            frame, _ = self.stabilizer.stabilize(frame)
 
         full_h, full_w = frame.shape[:2]
 
         # 2. Crop
-        if self.roi_mode in ("roi_crop", "crop_rect") and crop_rect:
+        if self.roi_mode in ("roi_crop", "crop_rect", "roi_mask") and crop_rect:
             min_x, min_y, max_x, max_y = crop_rect
             if max_y > min_y and max_x > min_x:
                 cropped = frame[min_y:max_y, min_x:max_x]
@@ -154,8 +161,8 @@ class FrameProcessor:
 
         crop_h, crop_w = cropped.shape[:2]
 
-        # 3. Polygon mask (within cropped space)
-        if self.roi_mode in ("roi_crop", "crop_rect", "roi_mask") and poly_mask is not None and len(poly_mask) >= 3:
+        # 3. Polygon mask (only if explicitly in roi_mask mode)
+        if self.roi_mode == "roi_mask" and poly_mask is not None and len(poly_mask) >= 3:
             mask = np.zeros(cropped.shape[:2], dtype=np.uint8)
             cv2.fillPoly(mask, [poly_mask], 255)
             cropped = cv2.bitwise_and(cropped, cropped, mask=mask)
@@ -195,18 +202,3 @@ class FrameProcessor:
         if not success:
             return None
         return buf.tobytes()
-
-    def _stabilize(self, frame: np.ndarray) -> np.ndarray:
-        if self._ref_gray is None:
-            return frame
-        try:
-            current_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32)
-            shift, _ = cv2.phaseCorrelate(self._ref_gray, current_gray)
-            dx, dy = -shift[0], -shift[1]
-            if abs(dx) > 0.3 or abs(dy) > 0.3:
-                warp = np.float32([[1, 0, dx], [0, 1, dy]])
-                frame = cv2.warpAffine(frame, warp, (frame.shape[1], frame.shape[0]),
-                                      borderMode=cv2.BORDER_REPLICATE)
-        except cv2.error:
-            pass
-        return frame

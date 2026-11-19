@@ -11,7 +11,6 @@ from tfengine.core_ai import YoloByteTrackDetector
 from tfengine.counting.methods import TrackObservation, build_counter
 from tfengine.geometry import bbox_bottom_center
 from tfengine.pipeline.overlay import draw_counting_overlay
-from shared.runtime_paths import resolve_model_path
 
 ProgressCallback = Callable[[dict], None]
 
@@ -20,7 +19,7 @@ ProgressCallback = Callable[[dict], None]
 class VideoCountingRequest:
     video_path: Path
     config_path: Path
-    model_path: str = "yolov8n.pt"
+    model_path: str = "models/yolov8n.pt"
     device: Optional[str] = None
     imgsz: int = 640
     half: bool = False
@@ -79,7 +78,7 @@ class TrafficFlowEngine:
     def process_video(self, request: VideoCountingRequest) -> VideoCountingResult:
         config = json.loads(request.config_path.read_text(encoding="utf-8"))
         detector = YoloByteTrackDetector(
-            resolve_model_path(request.model_path),
+            request.model_path,
             confidence=request.confidence,
             device=request.device,
             imgsz=request.imgsz,
@@ -110,8 +109,6 @@ class TrafficFlowEngine:
                 fps,
                 (width, height),
             )
-            if not writer.isOpened():
-                raise RuntimeError(f"Could not open output video writer: {request.output_video_path}")
 
         jsonl_handle = None
         if request.output_jsonl_path:

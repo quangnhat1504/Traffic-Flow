@@ -1,0 +1,231 @@
+{
+  "_": "TrafficFlow System Architecture: Client Browser vs Orange Pi 5 Edge Cloud",
+  "elements": [
+    {
+      "t": "frame",
+      "id": "f_client",
+      "x": 10,
+      "y": 10,
+      "w": 250,
+      "h": 440,
+      "title": "Client Browser (React + Canvas)",
+      "color": "l2"
+    },
+    {
+      "t": "box",
+      "id": "ui_upload",
+      "x": 25,
+      "y": 50,
+      "w": 220,
+      "h": 55,
+      "size": 14,
+      "text": "Video Upload / Stream\n(MP4, RTSP, HLS Player)",
+      "color": "l2",
+      "fill": "soft"
+    },
+    {
+      "t": "box",
+      "id": "ui_canvas",
+      "x": 25,
+      "y": 145,
+      "w": 220,
+      "h": 60,
+      "size": 14,
+      "text": "Interactive Canvas Studio\n(Vẽ ROI đa giác & Vạch đếm)",
+      "color": "node",
+      "fill": "node"
+    },
+    {
+      "t": "box",
+      "id": "ui_dash",
+      "x": 25,
+      "y": 240,
+      "w": 220,
+      "h": 55,
+      "size": 14,
+      "text": "Realtime Dashboard\n(SSE Polling & Metrics)",
+      "color": "ink",
+      "fill": "soft"
+    },
+    {
+      "t": "box",
+      "id": "ui_video",
+      "x": 25,
+      "y": 330,
+      "w": 220,
+      "h": 60,
+      "size": 14,
+      "text": "Result Video Player\n(H.264 Stream & Download)",
+      "color": "hot",
+      "fill": "hot"
+    },
+    {
+      "t": "frame",
+      "id": "f_opi5",
+      "x": 310,
+      "y": 10,
+      "w": 500,
+      "h": 440,
+      "title": "Edge Cloud: Orange Pi 5 (RK3588 @ 100.115.216.86)",
+      "color": "l4"
+    },
+    {
+      "t": "box",
+      "id": "api",
+      "x": 330,
+      "y": 50,
+      "w": 180,
+      "h": 55,
+      "size": 14,
+      "text": "FastAPI Server (:8000)\n(REST API, CORS, SSE)",
+      "color": "l4",
+      "fill": "l4"
+    },
+    {
+      "t": "queue",
+      "id": "redis_q",
+      "x": 330,
+      "y": 150,
+      "w": 180,
+      "h": 45,
+      "text": "Redis Tasks",
+      "items": [{"color":"hot"}, {}, {}]
+    },
+    {
+      "t": "box",
+      "id": "worker",
+      "x": 330,
+      "y": 240,
+      "w": 180,
+      "h": 55,
+      "size": 14,
+      "text": "Celery Async Worker\n(Video Pipeline Engine)",
+      "color": "ink",
+      "fill": "soft"
+    },
+    {
+      "t": "frame",
+      "id": "f_npu",
+      "x": 540,
+      "y": 50,
+      "w": 250,
+      "h": 250,
+      "title": "RK3588 NPU (6 TOPS)",
+      "color": "node",
+      "dashed": true
+    },
+    {
+      "t": "box",
+      "id": "npu_dma",
+      "x": 555,
+      "y": 80,
+      "w": 220,
+      "h": 50,
+      "size": 13,
+      "text": "In-Silicon DMA Norm\n(<0.1ms Hardware Scaling)"
+    },
+    {
+      "t": "box",
+      "id": "npu_core",
+      "x": 555,
+      "y": 150,
+      "w": 220,
+      "h": 50,
+      "size": 13,
+      "text": "Tri-Core Dynamic Sharding\n(Core 0, 1, 2 Auto-Balance)",
+      "color": "node",
+      "fill": "node"
+    },
+    {
+      "t": "box",
+      "id": "npu_model",
+      "x": 555,
+      "y": 220,
+      "w": 220,
+      "h": 55,
+      "size": 13,
+      "text": "YOLOv8 FP16 RKNN Binary\n(P95=15.1ms · 66.2 FPS)",
+      "color": "hot",
+      "fill": "hot"
+    },
+    {
+      "t": "db",
+      "id": "sqlite_db",
+      "x": 330,
+      "y": 335,
+      "w": 180,
+      "h": 80,
+      "kind": "sql",
+      "size": 14,
+      "text": "SQLite (WAL Mode)\nLocal Sovereign DB"
+    },
+    {
+      "t": "box",
+      "id": "local_storage",
+      "x": 540,
+      "y": 335,
+      "w": 250,
+      "h": 80,
+      "size": 13,
+      "color": "muted",
+      "fill": "soft",
+      "text": "Edge Storage (NVMe/eMMC)\n(/storage/uploads, results)"
+    },
+    {
+      "t": "arrow",
+      "from": "ui_upload",
+      "to": "api",
+      "fromSide": "right",
+      "toSide": "left",
+      "text": "Upload / Config",
+      "color": "hot"
+    },
+    {
+      "t": "arrow",
+      "from": "api",
+      "to": "redis_q",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "t": "arrow",
+      "from": "redis_q",
+      "to": "worker",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "t": "arrow",
+      "from": "worker",
+      "to": "npu_core",
+      "fromSide": "right",
+      "toSide": "left",
+      "text": "NPU infer",
+      "color": "hot"
+    },
+    {
+      "t": "arrow",
+      "from": "worker",
+      "to": "sqlite_db",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "t": "arrow",
+      "from": "worker",
+      "to": "local_storage",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "t": "arrow",
+      "from": "local_storage",
+      "to": "ui_video",
+      "fromSide": "bottom",
+      "toSide": "bottom",
+      "route": "vhv",
+      "text": "Stream MP4 Result",
+      "color": "hot"
+    }
+  ]
+}

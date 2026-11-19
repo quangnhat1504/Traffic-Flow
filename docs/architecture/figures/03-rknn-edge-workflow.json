@@ -1,0 +1,125 @@
+{
+  "_": "TrafficFlow RKNN Model Compilation and UKMC.v1 Epistemic Stopping Gate",
+  "elements": [
+    {
+      "t": "box",
+      "id": "m_pt",
+      "x": 20,
+      "y": 40,
+      "w": 180,
+      "h": 90,
+      "size": 14,
+      "text": "1. Fine-tuned PyTorch\n• yolov8_vietnam.pt\n• 4 vehicle classes\n• 416x416 resolution",
+      "color": "ink",
+      "fill": "soft"
+    },
+    {
+      "t": "box",
+      "id": "m_onnx",
+      "x": 240,
+      "y": 40,
+      "w": 180,
+      "h": 90,
+      "size": 14,
+      "text": "2. ONNX Slim Export\n• Opset 12, static shape\n• ONNX-simplifier pass\n• Bbox + 4-class tensor",
+      "color": "l2",
+      "fill": "soft"
+    },
+    {
+      "t": "box",
+      "id": "rknn_comp",
+      "x": 460,
+      "y": 40,
+      "w": 280,
+      "h": 90,
+      "size": 13,
+      "text": "3. RKNN-Toolkit2 Compiler\n• target = 'rk3588'\n• disable_rules = ['seperate_conv_rs_split']\n• Output: FP16 (no scale collapse)",
+      "color": "hot",
+      "fill": "hot"
+    },
+    {
+      "t": "box",
+      "id": "rknn_bin",
+      "x": 550,
+      "y": 185,
+      "w": 190,
+      "h": 90,
+      "size": 14,
+      "text": "4. RKNN Binary\n• yolov8_416_fp16.rknn\n• Size: 22.4 MB\n• Deployed to OPi5",
+      "color": "l4",
+      "fill": "l4"
+    },
+    {
+      "t": "box",
+      "id": "npu_run",
+      "x": 330,
+      "y": 185,
+      "w": 180,
+      "h": 90,
+      "size": 14,
+      "text": "5. RK3588 NPU Run\n• rknn-toolkit-lite2\n• DMA Norm (<0.1ms)\n• Tri-Core Auto-Sharding",
+      "color": "node",
+      "fill": "node"
+    },
+    {
+      "t": "table",
+      "id": "t_gate",
+      "x": 20,
+      "y": 185,
+      "cols": [95, 90, 85],
+      "head": ["Gate Metric", "Measured", "Status"],
+      "rows": [
+        ["P95 Latency", "15.1 ms", "PASS (P95)"],
+        ["Throughput", "66.2 FPS", "PASS (FPS)"],
+        ["Delta mAP", "0.0% (FP16)", "PASS (mAP)"],
+        ["Local Offline", "Zero leaks", "PASS (Local)"]
+      ],
+      "title": "6. UKMC.v1 Stopping Gate",
+      "size": 12,
+      "marks": {
+        "0": {"fill": "node"},
+        "1": {"fill": "node"},
+        "2": {"fill": "node"},
+        "3": {"fill": "node"}
+      }
+    },
+    {
+      "t": "arrow",
+      "from": "m_pt",
+      "to": "m_onnx",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "t": "arrow",
+      "from": "m_onnx",
+      "to": "rknn_comp",
+      "fromSide": "right",
+      "toSide": "left",
+      "color": "hot"
+    },
+    {
+      "t": "arrow",
+      "from": "rknn_comp",
+      "to": "rknn_bin",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "color": "hot"
+    },
+    {
+      "t": "arrow",
+      "from": "rknn_bin",
+      "to": "npu_run",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "t": "arrow",
+      "from": "npu_run",
+      "to": "t_gate",
+      "fromSide": "left",
+      "toSide": "right",
+      "color": "node"
+    }
+  ]
+}

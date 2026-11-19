@@ -84,7 +84,28 @@ TrafficFlow/
 
 ---
 
-## 2. Điểm Nhấn Hiệu Năng Phần Cứng Biên (Orange Pi 5)
+## 2. Sơ Đồ Kiến Trúc & Quy Trình Lõi (System Architecture & Pipeline Diagrams)
+
+> Chi tiết kỹ thuật và file thiết kế gốc (.excalidraw): Xem [docs/architecture/README.md](docs/architecture/README.md).
+
+### 2.1. Phân Tách Kiến Trúc: Client Browser vs Edge Cloud (Orange Pi 5)
+Hệ thống phân tách rạch ròi giữa giao diện người dùng (Client hiển thị kết quả, vẽ ROI Canvas) và cụm máy tính toán biên (Orange Pi 5 đóng vai trò Edge Cloud độc lập):
+
+![System Architecture](docs/architecture/figures/01-system-architecture-light.png)
+
+### 2.2. Đường Ống Xử Lý & Đếm Phương Tiện (Video Processing & Counting Pipeline)
+Đường ống 6 chặng chuẩn hóa từ frame raw, chống rung camera, suy luận NPU, liên kết track ByteTrack đến giải thuật đếm qua vạch định hướng:
+
+![Video Counting Pipeline](docs/architecture/figures/02-video-counting-pipeline-light.png)
+
+### 2.3. Quy Trình Biên Dịch RKNN & Cổng Dừng Nhận Thức (UKMC.v1 Stopping Gate)
+Quy trình tối ưu hóa trọng số mô hình từ PyTorch sang RKNN FP16/INT8 và kiểm định chuẩn cổng dừng UKMC.v1:
+
+![RKNN Edge Workflow](docs/architecture/figures/03-rknn-edge-workflow-light.png)
+
+---
+
+## 3. Điểm Nhấn Hiệu Năng Phần Cứng Biên (Orange Pi 5)
 
 | Thông số | Trên CPU Cortex-A76 | Trên NPU RK3588 (INT8 Tri-Core) | Mức cải thiện |
 | :--- | :--- | :--- | :--- |
@@ -96,7 +117,7 @@ TrafficFlow/
 
 ---
 
-## 3. Khởi Chạy Nhanh (Quick Start)
+## 4. Khởi Chạy Nhanh (Quick Start)
 
 ### Lựa chọn A: Chạy Cục bộ trên Máy Host (Windows / Linux)
 Chế độ thuần nội bộ, không cần tài khoản Cloud, không lo ngắt kết nối:
@@ -117,7 +138,7 @@ Sử dụng kịch bản đồng bộ qua Tailscale (`100.115.216.86`):
 
 ---
 
-## 4. Kiểm Chuẩn Hệ Thống (Workflow & Testing)
+## 5. Kiểm Chuẩn Hệ Thống (Workflow & Testing)
 
 Chạy bộ điều phối workflow tự động:
 ```bash
@@ -133,8 +154,9 @@ Chạy toàn bộ 199 unit & integration tests:
 
 ---
 
-## 5. Tài Liệu Kỹ Thuật Tham Khảo
+## 6. Tài Liệu Kỹ Thuật Tham Khảo
 
+- **Sơ đồ kiến trúc & Quy trình xử lý:** [docs/architecture/README.md](docs/architecture/README.md)
 - **Triển khai Orange Pi 5:** [docs/deployment/ORANGE_PI_5_DEPLOYMENT_GUIDE.md](docs/deployment/ORANGE_PI_5_DEPLOYMENT_GUIDE.md)
 - **Vận hành Local Offline:** [docs/deployment/LOCAL_OFFLINE_SETUP.md](docs/deployment/LOCAL_OFFLINE_SETUP.md)
 - **Đồ thị tri thức & Cổng nhận thức:** [docs/knowledge_graph/00_EPISTEMIC_STOPPING_GATE.md](docs/knowledge_graph/00_EPISTEMIC_STOPPING_GATE.md)

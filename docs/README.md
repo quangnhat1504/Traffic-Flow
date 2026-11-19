@@ -1,69 +1,24 @@
-# TrafficFlow
+# Danh Mục Tài Liệu Kỹ Thuật (TrafficFlow Edge AI)
 
-Hệ thống phân tích giao thông bằng video: phát hiện, tracking và đếm xe theo lane.  
-Stack: **FastAPI + Celery + YOLOv8 + ByteTrack + React** — tất cả chạy qua **Docker + GPU local**.
-
----
-
-## Quick Start (Docker)
-
-```bash
-cd C:\Users\ADMIN\OneDrive\Documents\_Project\TrafficFlow
-docker compose up -d
-# Mở http://localhost:8000
-```
-
-3 containers: **api** (FastAPI + React), **worker** (YOLO GPU), **redis** (broker).
-
-Không cần cài Python, MongoDB, Redis riêng — tất cả trong Docker + cloud services.
+Tài liệu dự án được tổ chức phân tầng rõ ràng theo chuẩn công nghệ phân tán và tính toán biên:
 
 ---
 
-## Tài liệu
+## 1. Bản Đồ Tài Liệu (Documentation Map)
 
-| File | Nội dung |
-|------|----------|
-| [HUONG_DAN_SU_DUNG.md](./HUONG_DAN_SU_DUNG.md) | Hướng dẫn chi tiết: deploy, sử dụng, API, cấu trúc |
-| [API_INTEGRATION.md](./API_INTEGRATION.md) | API integration guide (Modal inference cũ) |
-| [traffic_flow.md](./traffic_flow.md) | Thiết kế hệ thống ban đầu |
-
----
-
-## Cấu trúc thư mục chính
-
-```
-src/
-├── api/             # FastAPI server + routes
-├── shared/          # Config, database, R2 storage
-├── worker/          # Celery worker + pipeline (YOLO, tracker, renderer)
-└── tfengine/        # Core AI: YoloByteTrackDetector
-
-models/              # YOLO weights (yolov8n.pt, yolov8s.pt)
-frontend/            # React app (Vite)
-configs/             # Config mẫu (Cầu Rồng, ...)
-tests/               # 137 unit tests
-```
+| Danh mục | Thư mục / Tập tin | Nội dung chính |
+| :--- | :--- | :--- |
+| **Kiến Trúc & Sơ Đồ** | [architecture/README.md](architecture/README.md) | Sơ đồ hệ thống Excalidraw, luồng xử lý video và biên dịch RKNN |
+| **Đồ Thị Tri Thức** | [knowledge_graph/](knowledge_graph/) | Design-OS Universal Knowledge Pipeline, UKMC.v1 Stopping Gate |
+| **Quản Trị & Tiêu Chí** | [governance/](governance/) | Tiêu chí chấm điểm benchmark, Roster đội ngũ Agent, Lộ trình dài hạn |
+| **Triển Khai Biên** | [deployment/ORANGE_PI_5_DEPLOYMENT_GUIDE.md](deployment/ORANGE_PI_5_DEPLOYMENT_GUIDE.md) | Triển khai NPU Rockchip RK3588, Docker ARM64, Tailscale proxy |
+| **Vận Hành Offline** | [deployment/LOCAL_OFFLINE_SETUP.md](deployment/LOCAL_OFFLINE_SETUP.md) | Chế độ Local Sovereign Mode với SQLite WAL, zero-cloud fallback |
+| **Hướng Dẫn Sử Dụng** | [HUONG_DAN_SU_DUNG.md](HUONG_DAN_SU_DUNG.md) | Sổ tay vận hành API, Studio vẽ làn đường Canvas, HLS streaming |
+| **Hợp Đồng API** | [contracts/API_CONTRACTS.md](contracts/API_CONTRACTS.md) | Đặc tả JSON Schema cho REST endpoints, Task lifecycle & Video counting |
+| **Nhật Ký Xác Nhận** | [DESIGN_QUESTIONS_AND_CONFIRMATIONS.md](DESIGN_QUESTIONS_AND_CONFIRMATIONS.md) | Ghi nhận quyết định kỹ thuật và phản hồi của người dùng |
 
 ---
 
-## Inference
-
-- **GPU**: NVIDIA RTX 5070 Ti (CUDA 12.4) — ~0.02-0.1s/frame
-- **CPU fallback**: tự động nếu không có GPU
-- **Model**: YOLOv8n (6.3MB) hoặc YOLOv8s (22MB)
-- **Pipeline**: Frame → stabilize → polygon ROI crop/mask → resize 640px → YOLO → ByteTrack → counting gate
-
-## Benchmark (UA-DETRAC + RTX 5070 Ti)
-
-| Preset | Imgsz | Half | FPS | Real-time | Count Err | VRAM |
-|--------|-------|------|-----|-----------|-----------|------|
-| optimized-a | 640 | FP16 | 24 | 1.8× | **6.06%** | 3.4 GB |
-| optimized-b | 512 | FP16 | 29 | 2.4× | 15.15% | 3.4 GB |
-| optimized-c | 416 | FP16 | 30 | 2.4× | 21.21% | 3.4 GB |
-| baseline | 640 | FP32 | 24 | 1.9× | 6.06% | 3.6 GB |
-
-**Sweet spot**: `optimized-a-yolov8n-fp16-640` — 6% error, 24 FPS, 1.8× real-time.
-Ground truth: UA-DETRAC 3 sequences (MVI_20011/20012/20035, 2,400 frames total).
-Full matrix: 12 runs × 3 videos × 4 presets → `benchmark/reports/benchmark_report.md`.
-
-
+## 2. Tiêu Chuẩn Lưu Trữ
+- Toàn bộ ghi chú cũ, sprint log không còn sử dụng được đưa vào `docs/archive/` để giữ không gian ngữ cảnh (agent context) luôn tinh gọn và chính xác.
+- Mọi sơ đồ kỹ thuật mới được lưu trữ tại `docs/architecture/figures/` với đầy đủ 4 định dạng: `.excalidraw` (nguồn vector mở), `.svg` (vector web), `-light.png` và `-dark.png` (ảnh hiển thị GitHub).

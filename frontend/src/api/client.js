@@ -1,4 +1,7 @@
-const API_BASE_URL = String(import.meta.env.VITE_API_BASE_URL || "")
+const API_BASE_URL = String(
+  import.meta.env.VITE_API_BASE_URL ||
+  (typeof window !== "undefined" && window.location.port === "5173" ? "http://127.0.0.1:8000" : "")
+)
   .trim()
   .replace(/\/+$/, "");
 
@@ -12,10 +15,8 @@ export function apiUrl(path) {
 }
 
 function assertApiConfiguration(path) {
-  // Same-origin deployments (frontend served by the FastAPI container) rely on
-  // relative paths, so no explicit base URL is required. Upstream asserted
-  // unconditionally in PROD because their frontend is deployed separately
-  // (Vercel) from the backend; that check is intentionally disabled here.
+  // Same-origin relative URLs are supported by FastAPI mounted frontend
+  return;
 }
 
 export async function apiRequest(path, options = {}) {

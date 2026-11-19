@@ -1,0 +1,161 @@
+{
+  "$schema": "https://trafficflow.ai/schemas/knowledge-graph-v2.json",
+  "project": "TrafficFlow",
+  "version": "2.0.0",
+  "updated_at": "2026-11-18T03:20:00Z",
+  "epistemic_gate_version": "UKMC.v1",
+  "nodes": [
+    {
+      "id": "hw:orangepi5",
+      "type": "HardwareTarget",
+      "properties": {
+        "name": "Orange Pi 5",
+        "soc": "Rockchip RK3588S",
+        "arch": "aarch64",
+        "cpu": "4x Cortex-A76 @ 2.4GHz + 4x Cortex-A55 @ 1.8GHz",
+        "npu_tops": 6.0,
+        "npu_cores": 3,
+        "npu_device": "/dev/dri/renderD129",
+        "ram_gb": 8,
+        "nvme_storage_gb": 465,
+        "ip_tailscale": "100.115.216.86",
+        "user": "qnhat"
+      }
+    },
+    {
+      "id": "hw:client_host",
+      "type": "HardwareTarget",
+      "properties": {
+        "name": "Local Client / Host Machine",
+        "os": "Windows 11 / WSL2",
+        "role": "Development, Local Ingest, Mock Server, USB/CCTV Ingestion"
+      }
+    },
+    {
+      "id": "model:yolov8n_vietnamese",
+      "type": "ModelTopology",
+      "properties": {
+        "name": "YOLOv8n Vietnamese Vehicle Detection",
+        "source_path": "models/vietnamese_vehicle_detection/my_finetuned_yolov8.pt",
+        "task": "Vehicle Detection",
+        "classes": ["car", "motorcycle", "bus", "truck"],
+        "baseline_mAP50_95": 0.519,
+        "params_million": 3.2
+      }
+    },
+    {
+      "id": "model:yolov8n_coco",
+      "type": "ModelTopology",
+      "properties": {
+        "name": "YOLOv8n Standard COCO Baseline",
+        "source_path": "models/yolov8n.pt",
+        "classes": ["car", "motorcycle", "bus", "truck"],
+        "params_million": 3.2
+      }
+    },
+    {
+      "id": "variant:yolov8n_416_int8_rknn",
+      "type": "QuantizationVariant",
+      "properties": {
+        "model_ref": "model:yolov8n_vietnamese",
+        "format": "RKNN",
+        "precision": "INT8_QDQ",
+        "input_resolution": [416, 416],
+        "target_hardware": "hw:orangepi5",
+        "latency_ms": 11.99,
+        "fps": 83.4,
+        "mAP50_95": 0.508,
+        "in_silicon_normalization": true,
+        "recommended_for": ["live_cctv_streaming", "multi_lane_realtime"]
+      }
+    },
+    {
+      "id": "variant:yolov8n_320_int8_rknn",
+      "type": "QuantizationVariant",
+      "properties": {
+        "model_ref": "model:yolov8n_vietnamese",
+        "format": "RKNN",
+        "precision": "INT8_QDQ",
+        "input_resolution": [320, 320],
+        "target_hardware": "hw:orangepi5",
+        "latency_ms": 6.52,
+        "fps": 153.4,
+        "mAP50_95": 0.485,
+        "recommended_for": ["ultra_high_fps_streaming", "low_power_edge"]
+      }
+    },
+    {
+      "id": "variant:yolov8n_640_fp16_onnx",
+      "type": "QuantizationVariant",
+      "properties": {
+        "model_ref": "model:yolov8n_vietnamese",
+        "format": "ONNX",
+        "precision": "FP16",
+        "input_resolution": [640, 640],
+        "target_hardware": "hw:client_host",
+        "latency_ms": 53.48,
+        "fps": 18.7,
+        "mAP50_95": 0.518,
+        "recommended_for": ["offline_video_upload", "high_precision_audit"]
+      }
+    },
+    {
+      "id": "stream:live_rtsp",
+      "type": "MediaStream",
+      "properties": {
+        "name": "Live CCTV RTSP / MJPEG Stream",
+        "protocol": "RTSP",
+        "queue_mode": "SingleSlotLatestFrame",
+        "target_fps": 30,
+        "latency_mode": "UltraLowLatency"
+      }
+    },
+    {
+      "id": "stream:upload_mp4",
+      "type": "MediaStream",
+      "properties": {
+        "name": "Uploaded Video Batch Processing",
+        "protocol": "HTTP_Multipart",
+        "queue_mode": "Celery_Redis_Queue",
+        "roi_mode": "crop_rect",
+        "concurrency": 2
+      }
+    },
+    {
+      "id": "storage:local_json_db",
+      "type": "StorageEngine",
+      "properties": {
+        "path": "storage/local_db.json",
+        "mode": "LocalSovereignFallback",
+        "atomic_write": true,
+        "zero_cloud_dependency": true
+      }
+    }
+  ],
+  "edges": [
+    {
+      "source": "model:yolov8n_vietnamese",
+      "target": "variant:yolov8n_416_int8_rknn",
+      "type": "COMPILED_TO",
+      "properties": {"calibration_dataset": "data/calibration_cctv", "calib_samples": 120}
+    },
+    {
+      "source": "variant:yolov8n_416_int8_rknn",
+      "target": "hw:orangepi5",
+      "type": "ACCELERATED_ON",
+      "properties": {"device": "/dev/dri/renderD129", "core_mask": 7}
+    },
+    {
+      "source": "stream:live_rtsp",
+      "target": "variant:yolov8n_416_int8_rknn",
+      "type": "SERVED_BY",
+      "properties": {"target_fps": 30, "p95_latency_ms": 14.2}
+    },
+    {
+      "source": "stream:upload_mp4",
+      "target": "storage:local_json_db",
+      "type": "REPORTS_TO",
+      "properties": {"metric": "vehicle_counts_by_lane"}
+    }
+  ]
+}

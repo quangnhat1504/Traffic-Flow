@@ -61,4 +61,4 @@ def parse_counter_config(raw: Dict[str, Any]) -> CounterConfig:
             )
         )
 
-    return CounterConfig(method=str(raw["method"]), lanes=lanes, settings=settings)
+    return CounterConfig(method=str(raw.get("method", "counting_gate")), lanes=lanes, settings=settings)

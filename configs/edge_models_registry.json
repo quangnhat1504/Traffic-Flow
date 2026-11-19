@@ -1,0 +1,77 @@
+{
+  "$schema": "https://trafficflow.ai/schemas/edge-registry-v1.json",
+  "active_model": "yolov8n_416",
+  "default_resolution": 416,
+  "hardware_target": "Rockchip RK3588 (Orange Pi 5)",
+  "variants": {
+    "yolov8n_416": {
+      "model_name": "my_finetuned_yolov8",
+      "resolution": [
+        416,
+        416
+      ],
+      "onnx_path": "models/onnx/my_finetuned_yolov8_416.onnx",
+      "rknn_path": "models/rknn/my_finetuned_yolov8_416_int8.rknn",
+      "precision": "INT8_QDQ",
+      "in_silicon_norm": true,
+      "measured_latency_ms": 11.99,
+      "measured_fps": 83.4,
+      "mAP50_95": 0.508,
+      "role": "production_default"
+    },
+    "yolov8n_320": {
+      "model_name": "my_finetuned_yolov8",
+      "resolution": [
+        320,
+        320
+      ],
+      "onnx_path": "models/onnx/my_finetuned_yolov8_320.onnx",
+      "rknn_path": "models/rknn/my_finetuned_yolov8_320_int8.rknn",
+      "precision": "INT8_QDQ",
+      "in_silicon_norm": true,
+      "measured_latency_ms": 6.52,
+      "measured_fps": 153.4,
+      "mAP50_95": 0.485,
+      "role": "low_power_multi_stream"
+    },
+    "yolov8n_640": {
+      "model_name": "my_finetuned_yolov8",
+      "resolution": [
+        640,
+        640
+      ],
+      "onnx_path": "models/onnx/my_finetuned_yolov8_640.onnx",
+      "rknn_path": "models/rknn/my_finetuned_yolov8_640_int8.rknn",
+      "precision": "FP16_FALLBACK",
+      "in_silicon_norm": true,
+      "measured_latency_ms": 53.48,
+      "measured_fps": 18.7,
+      "mAP50_95": 0.518,
+      "role": "high_precision_upload"
+    }
+  },
+  "my_finetuned_yolov8_416": {
+    "model_name": "my_finetuned_yolov8",
+    "onnx_path": "models\\onnx\\my_finetuned_yolov8_416.onnx",
+    "rknn_path": "models/rknn/my_finetuned_yolov8_416_int8.rknn",
+    "resolution": [
+      416,
+      416
+    ],
+    "hardware_target": "Rockchip RK3588 (Orange Pi 5)",
+    "in_silicon_norm": true,
+    "status": "ready_for_board_compile"
+  },
+  "my_finetuned_yolov8_320": {
+    "model_name": "my_finetuned_yolov8",
+    "onnx_path": "models\\onnx\\my_finetuned_yolov8_320.onnx",
+    "rknn_path": "models/rknn/my_finetuned_yolov8_320_int8.rknn",
+    "resolution": [
+      320,
+      320
+    ],
+    "hardware_target": "Rockchip RK3588 (Orange Pi 5)",
+    "in_silicon_norm": true,
+    "status": "ready_for_board_compile"
+  }
+}

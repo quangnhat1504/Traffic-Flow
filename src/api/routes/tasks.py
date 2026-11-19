@@ -157,32 +157,35 @@ async def process_task(
     # Use working (1080p) copy for processing; fallback to original
     process_video_url = task.get("working_video_url") or task["video_url"]
 
+    dispatched = False
     try:
-        celery_app.send_task(
-            "trafficflow.process_video",
-            args=[task_id, process_video_url, serializable_config, callback_url],
-            task_id=task_id,
-            queue=settings.CELERY_QUEUE_NAME,
-        )
+        insp = celery_app.control.inspect(timeout=0.3)
+        active_workers = insp.ping() if insp else None
+        if active_workers:
+            celery_app.send_task(
+                "trafficflow.process_video",
+                args=[task_id, process_video_url, serializable_config, callback_url],
+                task_id=task_id,
+                queue=settings.CELERY_QUEUE_NAME,
+            )
+            dispatched = True
+            logger.info("Task %s sent to external Celery worker", task_id)
     except Exception as exc:
-        logger.exception("Could not enqueue task %s", task_id)
-        await db.tasks.update_one(
-            {"task_id": task_id, "status": "pending"},
-            {
-                "$set": {
-                    "status": "failed",
-                    "progress": 0,
-                    "stage": "queue_unavailable",
-                    "stage_detail": "Redis/Celery worker is unavailable",
-                    "error_message": f"Worker queue unavailable: {exc.__class__.__name__}",
-                    "updated_at": datetime.utcnow(),
-                }
-            },
+        logger.warning("Celery inspect/send failed (%s)", exc)
+
+    if not dispatched:
+        logger.info(
+            "No active Celery worker found; starting in-process worker thread for task %s",
+            task_id
         )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Worker queue unavailable. Start native Redis and the Celery worker, then retry with a new upload.",
-        ) from exc
+        import threading
+        from worker.celery_app import process_video
+        threading.Thread(
+            target=process_video,
+            args=(task_id, process_video_url, serializable_config, callback_url),
+            daemon=True,
+            name=f"worker-thread-{task_id}",
+        ).start()
 
     return TaskCreateResponse(
         task_id=task_id,

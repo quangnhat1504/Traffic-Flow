@@ -1,10 +1,17 @@
 import logging
 import os
-os.environ["NO_PROXY"] = "localhost,127.0.0.1"
+os.environ["NO_PROXY"] = "localhost,127.0.0.1,100.115.216.86,*"
+
+# Force RESP2 for native Redis on Windows
+import redis.utils
+import redis.connection
+redis.utils.DEFAULT_RESP_VERSION = 2
+redis.connection.DEFAULT_RESP_VERSION = 2
 
 import time
 import json
 import tempfile
+import subprocess
 import urllib.request
 import cv2
 import numpy as np
@@ -40,6 +47,7 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     task_track_started=True,
     task_default_queue=settings.CELERY_QUEUE_NAME,
+    broker_transport_options={"protocol": 2},
 )
 
 
@@ -87,9 +95,19 @@ def _warn_points_outside_processing_bounds(lanes: list, width: int, height: int,
 
 
 def _download_video_to_path(url: str, destination_path: str) -> float:
+    import shutil
     import requests
-    logger.info(f"Downloading video: {url}")
     start = time.perf_counter()
+    if os.path.exists(url):
+        shutil.copy(url, destination_path)
+        return (time.perf_counter() - start) * 1000.0
+    if "/static/" in url:
+        rel = url.split("/static/", 1)[1].lstrip("/")
+        local = os.path.join(settings.STORAGE_DIR, rel)
+        if os.path.exists(local):
+            shutil.copy(local, destination_path)
+            return (time.perf_counter() - start) * 1000.0
+    logger.info(f"Downloading video: {url}")
     with requests.Session() as s:
         resp = s.get(url, timeout=120, stream=True)
         resp.raise_for_status()
@@ -192,7 +210,7 @@ def process_video(task_id: str, video_url: str, lane_config: dict, callback_url:
         # --- Init pipeline stages ---
         processor = FrameProcessor(
             roi_input_size=settings.ROI_INPUT_SIZE,
-            roi_mode="roi_crop" if use_detection_crop else settings.ROI_MODE,
+            roi_mode="crop_rect" if use_detection_crop else settings.ROI_MODE,
             enable_stabilization=settings.AI_ENABLE_STABILIZATION,
         )
         # Use local YOLO when AI_LOCAL=true, otherwise Modal GPU
@@ -225,7 +243,7 @@ def process_video(task_id: str, video_url: str, lane_config: dict, callback_url:
             track_buffer=settings.TRACK_BUFFER,
         )
         counter = CountingState(lanes_processing, settings=lane_config.get("settings"))
-        renderer = FrameRenderer(lanes_processing, settings_obj=settings)
+        renderer = FrameRenderer(lanes_processing, roi_polygon=poly_mask, settings_obj=settings)
 
         # Stabilisation reference frame
         if settings.AI_ENABLE_STABILIZATION:
@@ -428,8 +446,28 @@ def process_video(task_id: str, video_url: str, lane_config: dict, callback_url:
             try:
                 _send_callback(callback_url, {
                     "status": "processing", "progress": 98,
-                    "stage": "uploading_result", "stage_detail": "Uploading rendered result video",
+                    "stage": "uploading_result", "stage_detail": "Encoding web-compatible H.264 video",
                 })
+                # Remux/transcode to browser-compatible H.264 with faststart so HTML5 video tag can decode it
+                web_mp4_path = temp_out_path + "_h264.mp4"
+                cmd = [
+                    "ffmpeg", "-y", "-loglevel", "error",
+                    "-i", temp_out_path,
+                    "-c:v", "libx264",
+                    "-preset", "ultrafast",
+                    "-crf", "23",
+                    "-pix_fmt", "yuv420p",
+                    "-movflags", "+faststart",
+                    "-an",
+                    web_mp4_path,
+                ]
+                try:
+                    subprocess.run(cmd, check=True, timeout=120, capture_output=True)
+                    if os.path.exists(web_mp4_path) and os.path.getsize(web_mp4_path) > 0:
+                        os.replace(web_mp4_path, temp_out_path)
+                except Exception as fe:
+                    logger.warning("FFmpeg H.264 transcode for result video failed: %s", fe)
+
                 result_url = r2_client.upload_path(temp_out_path, f"results/{task_id}.mp4", "video/mp4")
             except Exception as e:
                 logger.error(f"Upload failed: {e}")

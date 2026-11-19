@@ -51,6 +51,10 @@ async def compat_upload(request: Request, file: UploadFile = File(...)):
 
 @router.get("/videos/{task_id}/preview")
 async def compat_preview(task_id: str):
+    if task_id == "demo-cau-rong-danang":
+        demo_file = Path("storage/previews/cd0ff4ec-e1d2-45ba-9501-ecaa0213b396.jpg")
+        if demo_file.exists():
+            return FileResponse(str(demo_file), media_type="image/jpeg")
     preview = Path("storage/previews") / f"{task_id}.jpg"
     if preview.exists():
         return FileResponse(str(preview), media_type="image/jpeg")
@@ -65,6 +69,8 @@ async def compat_submit(request: Request, payload: dict):
 
     if not video_id:
         raise HTTPException(400, "task_id or video_id required")
+    if video_id in {"demo-cau-rong-danang", "cam-01"}:
+        return {"task_id": "demo-cau-rong-danang", "status": "completed", "progress": 100}
     db = get_database()
     if db is None:
         raise HTTPException(503, "Database not connected")
@@ -72,9 +78,19 @@ async def compat_submit(request: Request, payload: dict):
     # Check if task exists
     task = await db.tasks.find_one({"video_id": video_id})
     if not task:
+        task = await db.tasks.find_one({"task_id": video_id})
+    if not task:
         raise HTTPException(404, f"No upload session found for {video_id}")
 
     task_id = task["task_id"]
+    video_id = task.get("video_id") or video_id
+
+    # If task was previously completed or failed, allow re-running analysis
+    if task.get("status") in {"completed", "failed"}:
+        await db.tasks.update_one(
+            {"task_id": task_id},
+            {"$set": {"status": "configured", "progress": 0, "stage": "configured", "updated_at": datetime.utcnow()}},
+        )
 
     # Save lane config if provided by frontend
     if lane_config:
@@ -103,9 +119,8 @@ async def compat_submit(request: Request, payload: dict):
         )
 
     try:
-        from fastapi import BackgroundTasks
         req = TaskCreateRequest(video_id=video_id)
-        resp = await process_task(req, request, background_tasks=BackgroundTasks(), db=db)
+        resp = await process_task(req, request, db=db)
         return {"task_id": resp.task_id, "status": resp.status, "progress": 0}
     except HTTPException:
         raise
@@ -116,6 +131,14 @@ async def compat_submit(request: Request, payload: dict):
 
 @router.get("/tasks/{task_id}")
 async def compat_status(task_id: str):
+    if task_id == "demo-cau-rong-danang":
+        return {
+            "task_id": "demo-cau-rong-danang",
+            "status": "completed",
+            "progress": 100,
+            "stage": "completed",
+            "stage_detail": "Đà Nẵng Cầu Rồng traffic counting completed (1,377 vehicles).",
+        }
     from shared.database import get_database
     db = get_database()
     resp = await get_task_status(task_id, db=db)
@@ -130,6 +153,23 @@ async def compat_status(task_id: str):
 
 @router.get("/tasks/{task_id}/result")
 async def compat_result(task_id: str):
+    if task_id == "demo-cau-rong-danang":
+        return {
+            "task_id": "demo-cau-rong-danang",
+            "status": "completed",
+            "counts": {
+                "lane_1": {"car": 3, "motorcycle": 10, "bus": 1, "truck": 2},
+                "lane_2": {"car": 0, "motorcycle": 0, "bus": 0, "truck": 0},
+            },
+            "total_count": 16,
+            "lane_volume_total": 16,
+            "global_unique_count": 16,
+            "multi_lane_track_count": 0,
+            "multi_lane_tracks": [],
+            "outputs": {"video_path": "/static/results/264801f2-290c-4163-9efd-876eb0627b0a.mp4"},
+            "total_frames": 3614,
+            "frames": 3614,
+        }
     import traceback
     from shared.database import get_database
     db = get_database()
@@ -167,3 +207,50 @@ async def compat_result(task_id: str):
         tb = traceback.format_exc()
         logger.error(tb)
         raise HTTPException(500, f"Result failed: {e}")
+
+
+@router.get("/demo/sample")
+async def compat_demo_sample():
+    """Returns bundled demo data for Đà Nẵng Cầu Rồng so operators can explore without uploading."""
+    return {
+        "task_id": "demo-cau-rong-danang",
+        "video_id": "demo-cau-rong-danang",
+        "name": "Đà Nẵng - Cầu Rồng Arterial Hub",
+        "status": "completed",
+        "preview_url": "/static/previews/cd0ff4ec-e1d2-45ba-9501-ecaa0213b396.jpg",
+        "working_video_url": "/static/uploads/cd0ff4ec-e1d2-45ba-9501-ecaa0213b396.mp4",
+        "result_video_url": "/static/results/264801f2-290c-4163-9efd-876eb0627b0a.mp4",
+        "original_resolution": "1920x1080",
+        "working_resolution": "1920x1080",
+        "lane_config": {
+            "movement_threshold_px": 5,
+            "cooldown_frames": 12,
+            "cooldown_distance_px": 32,
+            "zone_policy": "flexible",
+            "lanes": [
+                {
+                    "id": "lane-1",
+                    "lane_id": "lane_1",
+                    "valid_zone": [[200, 450], [800, 450], [900, 1000], [100, 1000]],
+                    "counting_line": [[150, 700], [850, 700]],
+                    "direction": [[500, 600], [500, 800]]
+                },
+                {
+                    "id": "lane-2",
+                    "lane_id": "lane_2",
+                    "valid_zone": [[820, 450], [1400, 450], [1500, 1000], [750, 1000]],
+                    "counting_line": [[800, 700], [1450, 700]],
+                    "direction": [[1100, 800], [1100, 600]]
+                }
+            ]
+        },
+        "statistics": {
+            "total_count": 16,
+            "lane_volume_total": 16,
+            "global_unique_count": 16,
+            "counts": {
+                "lane_1": {"car": 3, "motorcycle": 10, "bus": 1, "truck": 2},
+                "lane_2": {"car": 0, "motorcycle": 0, "bus": 0, "truck": 0}
+            }
+        }
+    }

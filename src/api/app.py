@@ -1,6 +1,13 @@
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+# Force RESP2 for native Redis on Windows
+import redis.utils
+import redis.connection
+redis.utils.DEFAULT_RESP_VERSION = 2
+redis.connection.DEFAULT_RESP_VERSION = 2
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -85,7 +92,9 @@ def create_app() -> FastAPI:
     from api.routes.frontend_compat import router as compat_router
     from api.routes.live import router as live_router
     app.include_router(compat_router)
+    app.include_router(compat_router, prefix="/api/v1")
     app.include_router(live_router, prefix="/live", tags=["Live Compat"])
+    app.include_router(live_router, prefix="/api/v1/live", tags=["Live API"])
 
     @app.get("/health", tags=["System"])
     async def health():
@@ -100,6 +109,7 @@ def create_app() -> FastAPI:
         try:
             redis_client = redis.from_url(
                 settings.REDIS_URL,
+                protocol=2,
                 socket_connect_timeout=settings.REDIS_CONNECT_TIMEOUT_SECONDS,
                 socket_timeout=settings.REDIS_CONNECT_TIMEOUT_SECONDS,
             )
@@ -147,3 +157,5 @@ def create_app() -> FastAPI:
         logger.warning(f"Frontend dist directory not found at {frontend_dist_dir}. Frontend will not be served via FastAPI.")
 
     return app
+
+app = create_app()

@@ -5,6 +5,19 @@ __pycache__/
 .venv-gpu/
 venv/
 .env
+.env.*
+!.env.example
+!.env.cloud.example
+
+# Local tools and binaries
+tools/
+
+# Model binaries (weights should be hosted on releases / cloud storage / edge boards)
+*.pt
+*.onnx
+*.rknn
+weights/
+repos/
 
 # Old ref moved to src/tfengine/
 trafficflow/
@@ -74,10 +87,11 @@ benchmark/reports/summary.*
 benchmark/reports/summary_*.csv
 benchmark/reports/benchmark_report.md
 
-# External cloned model repos
-repos/
-weights/
-*.pt
+# Showcase build artifacts
+showcase/node_modules/
+showcase/output/
+showcase/raw/
+showcase/audio/*.wav
 
 # Node
 node_modules/

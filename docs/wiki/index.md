@@ -6,6 +6,7 @@
 - [[Geometry Config Scaling]] - Phased plan for removing the manual per-camera geometry bottleneck (industrialize manual config, then automate inference).
 - [[Local DB Fallback]] - Development fallback when MongoDB Atlas TLS/connectivity fails during local E2E.
 - [[Frontend Deploy Readiness]] - Frontend/API readiness notes for deployable user workflows.
+- [[frontend-ui-audit|Frontend UI Audit]] - Browser-agent audit of the docker-runtime UI: broken icon CSS root cause, wholesale upstream frontend fix, endpoint compatibility check.
 
 ## AI Workflow
 - [[Runtime Engine]] - The reusable counting workflow shared by CLI now and future API/worker code.

@@ -65,3 +65,18 @@ include = [
 
 [tool.setuptools.package-data]
 tfengine = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [
+    ".git",
+    ".venv",
+    "scratch",
+    "storage",
+    "showcase",
+    "frontend",
+    "benchmark",
+    "data",
+]
+python_files = ["test_*.py"]
+

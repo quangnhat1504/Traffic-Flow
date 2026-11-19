@@ -1,0 +1,50 @@
+# TrafficFlow Edge AI Runtime Configuration (Orange Pi 5 RK3588)
+hardware:
+  platform: orangepi5
+  soc: rk3588s
+  npu_tops: 6.0
+  npu_cores: 3
+  device_node: /dev/dri/renderD129
+
+models:
+  default_variant: yolov8n_416_int8_rknn
+  active_resolution: [416, 416]
+  confidence_threshold: 0.25
+  nms_threshold: 0.45
+  variants:
+    - name: yolov8n_416_int8_rknn
+      resolution: [416, 416]
+      format: rknn
+      precision: int8_qdq
+      in_silicon_norm: true
+      latency_p50_ms: 11.99
+      fps: 83.4
+      recommended_for: [live_cctv_streaming, default_edge]
+
+    - name: yolov8n_320_int8_rknn
+      resolution: [320, 320]
+      format: rknn
+      precision: int8_qdq
+      in_silicon_norm: true
+      latency_p50_ms: 6.52
+      fps: 153.4
+      recommended_for: [ultra_high_fps, multi_camera_sharding]
+
+    - name: yolov8n_640_fp16_onnx
+      resolution: [640, 640]
+      format: onnx
+      precision: fp16
+      latency_p50_ms: 53.48
+      fps: 18.7
+      recommended_for: [desktop_audit, upload_high_precision]
+
+npu_scheduler:
+  mode: dynamic_auto_sharding
+  single_stream_mask: 7        # Tri-core combined (6.0 TOPS)
+  multi_stream_sharding: true  # Cores 0, 1, 2 sharded per camera feed
+
+database:
+  engine: sqlite               # sqlite | json
+  sqlite_path: storage/trafficflow_edge.sqlite
+  wal_mode: true
+  synchronous: normal

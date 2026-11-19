@@ -261,7 +261,7 @@ class TestPipelineImports:
         from worker.pipeline.processor import FrameProcessor
 
         frame = np.full((100, 100, 3), 255, dtype=np.uint8)
-        processor = FrameProcessor(roi_input_size=64, enable_stabilization=False)
+        processor = FrameProcessor(roi_input_size=64, roi_mode="roi_mask", enable_stabilization=False)
         polygon = np.array([[10, 10], [80, 10], [10, 80]], dtype=np.int32)
 
         cropped, _ai_frame, transform = processor.process_for_ai(

@@ -11,7 +11,7 @@ from starlette.requests import Request
 from api.routes.tasks import task_progress_callback
 from api.schemas.lane import LaneConfigRequest
 from api.schemas.task import TaskProgressCallback
-from shared.database import LocalJsonDatabase, _ensure_mongo_indexes
+from shared.database import LocalJsonDatabase, SQLiteWalDatabase, _ensure_mongo_indexes
 
 
 def _lane_config() -> dict:
@@ -64,6 +64,55 @@ def test_local_json_save_is_atomic(tmp_path: Path) -> None:
     asyncio.run(database.tasks.insert_one({"task_id": "task-1"}))
     assert (tmp_path / "database.json").exists()
     assert not (tmp_path / ".database.json.tmp").exists()
+
+
+def test_sqlite_wal_database_operations(tmp_path: Path) -> None:
+    import asyncio
+    db_file = tmp_path / "test_edge.sqlite"
+    database = SQLiteWalDatabase(str(db_file))
+
+    async def _run():
+        # Insert
+        res1 = await database.tasks.insert_one({"task_id": "task-1", "status": "pending", "count": 10})
+        assert res1.inserted_id is not None
+
+        # Insert Many
+        res_many = await database.tasks.insert_many([
+            {"task_id": "task-2", "status": "processing", "count": 20},
+            {"task_id": "task-3", "status": "completed", "count": 30},
+        ])
+        assert len(res_many.inserted_ids) == 2
+
+        # Find One
+        doc = await database.tasks.find_one({"task_id": "task-2"})
+        assert doc is not None
+        assert doc["status"] == "processing"
+
+        # Count
+        count_all = await database.tasks.count_documents()
+        assert count_all == 3
+        count_completed = await database.tasks.count_documents({"status": "completed"})
+        assert count_completed == 1
+
+        # Update
+        up_res = await database.tasks.update_one({"task_id": "task-1"}, {"$set": {"status": "completed"}})
+        assert up_res.modified_count == 1
+        updated = await database.tasks.find_one({"task_id": "task-1"})
+        assert updated["status"] == "completed"
+
+        # Find with Cursor
+        cursor = database.tasks.find({"status": "completed"})
+        docs = await cursor.to_list()
+        assert len(docs) == 2
+
+        # Delete Many
+        del_res = await database.tasks.delete_many({"task_id": "task-3"})
+        assert del_res.deleted_count == 1
+        assert await database.tasks.count_documents() == 2
+
+    asyncio.run(_run())
+    database.close()
+    assert db_file.exists()
 
 
 def test_progress_callback_rejects_regression() -> None:

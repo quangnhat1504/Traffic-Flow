@@ -190,10 +190,10 @@ def normalize_video_path(input_path: str | Path) -> Tuple[str, VideoMeta, VideoM
         )
         return temp_out_name, orig_meta, working_meta, transcode_ms, True
 
-    except subprocess.CalledProcessError as e:
-        logger.error(f"FFmpeg transcode failed: {e}")
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError) as e:
+        logger.warning(f"FFmpeg transcode unavailable or failed: {e}")
         if getattr(e, "stderr", None):
-            logger.error("FFmpeg stderr: %s", e.stderr)
+            logger.warning("FFmpeg stderr: %s", e.stderr)
         # Fallback: return original
         transcode_ms = (time.perf_counter() - t0) * 1000.0
         if temp_out_name and os.path.exists(temp_out_name):

@@ -41,7 +41,8 @@ class LiveSessionCreate(BaseModel):
 
 
 class LiveSourceResolve(BaseModel):
-    url: str = Field(..., min_length=3)
+    url: Optional[str] = Field(default=None)
+    source_url: Optional[str] = Field(default=None)
 
 
 class LiveConfigValidate(BaseModel):
@@ -236,8 +237,8 @@ def _validate_lane_config(config: dict) -> tuple[bool, list[str]]:
 
 @router.post("/resolve")
 async def resolve_live_source(payload: LiveSourceResolve):
-    original_url = payload.url.strip()
-    if not original_url:
+    original_url = (payload.url or payload.source_url or "").strip()
+    if not original_url or len(original_url) < 3:
         raise HTTPException(422, "Source URL is required")
     media = await asyncio.to_thread(_resolve_media, original_url)
     source_id = str(uuid.uuid4())

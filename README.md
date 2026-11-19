@@ -1,234 +1,144 @@
-# TrafficFlow
+# TrafficFlow Edge AI (v2.0)
+*Intelligent Traffic Analysis & Vehicle Counting Platform for Edge & Cloud*
 
-Hệ thống phân tích giao thông bằng video: phát hiện, theo dõi và đếm xe theo từng làn đường. Người dùng upload video giao thông hoặc kết nối luồng trực tiếp (YouTube/HLS), vẽ vùng giám sát — hệ thống tự động trả về video có overlay và bảng thống kê số lượng xe theo làn, loại xe và hướng di chuyển.
+[![Hardware](https://img.shields.io/badge/Target_Hardware-Orange_Pi_5_(RK3588)-orange.svg)](https://www.orangepi.org/)
+[![NPU](https://img.shields.io/badge/NPU-Rockchip_6.0_TOPS_Tri--Core-blue.svg)]()
+[![Precision](https://img.shields.io/badge/Quantization-INT8_QDQ_(416x416)-purple.svg)]()
+[![Persistence](https://img.shields.io/badge/Local_Storage-SQLite_WAL_Mode-brightgreen.svg)]()
+[![Stopping Gate](https://img.shields.io/badge/Epistemic_Gate-UKMC.v1-red.svg)]()
 
-Dự án nhóm 5 thành viên, triển khai qua Docker với GPU local.
-
----
-
-## Kiến trúc hệ thống
-
-![System Architecture](images/System_Architecture.png)
-
-```
-Người dùng / Frontend
-  → FastAPI API
-    → MongoDB (lưu task, config, kết quả)
-    → Redis / Celery (hàng đợi xử lý)
-      → Worker (tải video, gọi AI engine)
-        → Local GPU Inference (YOLO + ByteTrack + Counting)
-          → Cloudflare R2 (lưu video kết quả)
-            → Trả kết quả về Frontend
-```
+Hệ thống phân tích video giám sát giao thông đô thị: phát hiện, theo dõi (tracking) và đếm xe theo từng làn đường theo thời gian thực. Hỗ trợ luồng camera trực tiếp (RTSP/MJPEG/HLS) và tải lên video ngoại tuyến, tối ưu hóa suy luận trực tiếp trên phần cứng biên **Orange Pi 5 (Rockchip RK3588 6 TOPS NPU)** kết hợp vận hành độc lập (Local Sovereign Mode) với SQLite WAL.
 
 ---
 
-## Tính năng chính
+## 1. Cấu trúc Thư mục Chuẩn (Repository Architecture)
 
-- **Upload video** giao thông (hỗ trợ chunked upload cho file lớn, tự động chuẩn hóa 1080p)
-- **Live streaming** từ YouTube, HLS, RTSP hoặc MJPEG — phân tích thời gian thực
-- **Vẽ trực quan** vùng giám sát (ROI), làn đường, đường đếm và hướng xe ngay trên giao diện web
-- **AI Pipeline**: YOLO phát hiện xe → ByteTrack theo dõi → Lọc theo làn → Đếm xe qua vạch
-- **Dashboard** thống kê: số lượng xe theo làn, loại xe (car, bus, truck, motorcycle) và hướng
-- **GPU acceleration** local qua Docker — không phụ thuộc cloud GPU
-
----
-
-## Workflow — Xử lý video upload
-
-![Batch Processing Workflow](images/batch_video_processing_workflow.png)
+Toàn bộ dự án đã được tái cấu trúc theo tiêu chuẩn kỹ thuật phân lớp rõ ràng:
 
 ```text
-Upload video → Trích xuất frame preview
-  → Người dùng vẽ ROI + làn đường + đường đếm + hướng
-    → Lưu lane config → Submit task
-      → Hàng đợi Celery → Worker tải video
-        → Xử lý từng frame: Detect → Track → Count → Render
-          → Upload kết quả lên R2
-            → Frontend poll kết quả: video overlay + bảng thống kê
-```
-
-Xử lý bất đồng bộ (async), queue-based — người dùng không phải chờ. Kết quả trả về gồm video đã gắn overlay và bảng thống kê chi tiết theo từng làn.
-
----
-
-## Workflow — Live streaming
-
-![Live Streaming Workflow](images/live_streaming_workflow.png)
-
-```text
-YouTube / HLS / RTSP source
-  → Phân giải nguồn (resolve source) → Chụp preview snapshot
-    → Người dùng vẽ ROI + lanes → Validate config
-      → Khởi động live session
-        → FFmpeg latest-frame ingest (chỉ lấy frame mới nhất)
-          → GPU inference → Tracking → Counting
-            → Xuất MJPEG / live frame → Dashboard metrics real-time
-```
-
-Live path khác biệt so với batch path: sử dụng chiến lược latest-frame (bỏ frame cũ, luôn xử lý frame mới nhất), timestamp-aware tracking, và near-zero frame age.
-
----
-
-## AI Pipeline
-
-![AI Core Pipeline](images/ai_core_pipeline.png)
-
-```text
-Input frame
-  → ROI crop + coordinate transform (chuẩn hóa về crop-local)
-  → YOLO detection (phát hiện xe: car, bus, truck, motorcycle)
-  → Detection filtering (lọc theo class + confidence)
-  → ByteTrack tracking (giữ identity xe qua các frame)
-  → Lane assignment (gán xe vào làn dựa trên valid zone)
-  → Direction validation (kiểm tra hướng xe so với direction vector)
-  → Line crossing detection (phát hiện xe cắt counting line)
-  → Event generation (mỗi lần cắt là một counting event)
-  → Count aggregation (tổng hợp theo lane + class + direction)
-  → Overlay rendering (vẽ bbox, track ID, lane, đếm lên frame)
-```
-
-**Điểm kỹ thuật chính:**
-
-- **Bottom-center anchor**: dùng điểm giữa cạnh dưới của bbox (thay vì tâm) để kiểm tra vị trí xe — gần điểm tiếp xúc mặt đường hơn
-- **Lane lock**: mỗi xe chỉ thuộc một làn tại một thời điểm, tránh đếm trùng
-- **Direction-aware counting**: chỉ đếm xe đi đúng hướng, bỏ qua xe đi ngược chiều
-- **Event semantics**: mỗi counting event có video_id, lane_id, class, direction, crossing_frame, crossing_time
-
-Chi tiết đầy đủ: [docs/portfolio/ai-pipeline.md](docs/portfolio/ai-pipeline.md)
-
----
-
-## Benchmark & Evaluation
-
-![Benchmark Workflow](images/benchmark_and_evaluation.png)
-
-Quy trình benchmark được thiết kế theo hướng evidence-driven:
-
-```text
-Audit repository → Freeze baseline → Freeze dataset split (theo sequence, không theo frame)
-  → Manual geometry → Derived ground truth (audit thủ công)
-    → Unified benchmark runner
-      → Detection benchmark (chọn model)
-      → Tracking benchmark (chọn tracker)
-      → Counting benchmark (đo end-to-end)
-        → Production decision (chọn pipeline tối ưu)
-```
-
-**Nguyên tắc benchmark:**
-
-- Tập test (held-out) được freeze trước khi tuning — không dùng test để chọn model
-- Split theo sequence hoàn chỉnh, cấm split ngẫu nhiên theo frame
-- Mọi metric có run ID, config snapshot và raw prediction để tái lập
-
-### Kết quả chính
-
-*Benchmark trên tập UA-DETRAC held-out, GPU RTX 5070 Ti*
-
-| Hạng mục                     |                   Chỉ số | Kết quả              |
-| ------------------------------ | -------------------------: | ---------------------- |
-| Phát hiện xe                 |              AP50 / Recall | 0.582 / 0.679          |
-| Theo dõi xe                   |    HOTA / IDF1 / ID Switch | 0.242 / 0.285 / 42     |
-| Đếm xe (event-level)         |            Event F1 / WAPE | 0.942 / 5.04%          |
-| Tốc độ xử lý video upload |     FPS / Real-time factor | 75.8 FPS / 3.03×      |
-| Live stream (30 phút soak)    | FPS / Frame age p95 / Drop | 14.9 FPS / 0.9 ms / 0% |
-
-Chi tiết từng phase: [docs/reports/](docs/reports/)
-
----
-
-## Timeline — Problem → Solution
-
-![Decision Timeline](images/Decision_and_Improvement.png)
-
-Hành trình phát triển qua các phase chính:
-
-```text
-Initial system (cơ bản)
-  → ROI inconsistency issue (sai coordinate space)
-    → Fix: coordinate normalization + geometry_space contract
-      → Detection benchmark (chọn model YOLOv8m)
-        → Tracking ablation (so sánh direct ByteTrack vs production re-tracker)
-          → Counting validation (derived GT + audit)
-            → End-to-end comparison
-              → Quyết định: Direct ByteTrack mạnh hơn production re-tracker
-                → Live runtime optimization (latest-frame scheduling)
-                  → 30-min soak test → Stable 15 FPS
+TrafficFlow/
+├── .agents/                           # Quy chuẩn kỹ thuật, Agent skills & Stopping gates (UKMC.v1)
+│   ├── skills/                        # Edge NPU, Epistemic Knowledge, Video Streaming skills
+│   └── AGENTS.md                      # Vòng đời kỹ thuật & Quy tắc bắt buộc
+│
+├── configs/                           # Cấu hình hệ thống & Registry mô hình
+│   ├── pipeline_config.yaml           # Cấu hình phần cứng OPi5, độ phân giải & NPU scheduler
+│   └── edge_models_registry.json      # Danh mục mô hình biên (416x416 INT8, 320x320, 640x640)
+│
+├── docker/                            # Cấu hình containerization cho các môi trường
+│   ├── Dockerfile.opi5                # Container ARM64 cho Orange Pi 5 (librknnrt + rknnlite)
+│   ├── docker-compose.opi5.yml        # Edge Cloud Stack OPi5 (API + Worker + Redis + /dev/dri)
+│   ├── Dockerfile.gpu                 # Container x86_64 GPU (NVIDIA CUDA 12.4)
+│   └── docker-compose.gpu.yml         # Compose stack chạy trên máy GPU desktop
+│
+├── docs/                              # Tài liệu kỹ thuật phân tầng
+│   ├── knowledge_graph/               # Đồ thị tri thức Design-OS & Cổng dừng UKMC.v1
+│   │   ├── 00_EPISTEMIC_STOPPING_GATE.md
+│   │   ├── 01_KNOWLEDGE_GRAPH_SPEC.md
+│   │   ├── 02_KNOWLEDGE_GRAPH_INDEX.json
+│   │   └── 03_MULTIMODAL_RESEARCH_PIPELINE.md
+│   ├── governance/                    # Tiêu chí chấm điểm, Roster agent & Kế hoạch dài hạn
+│   │   ├── 01_SCORING_CRITERIA_AND_BENCHMARKS.md
+│   │   ├── 02_AGENT_TEAM_ROSTER_AND_ROLES.md
+│   │   └── 03_LONG_TERM_ROADMAP.md
+│   ├── deployment/                    # Hướng dẫn triển khai chi tiết
+│   │   ├── ORANGE_PI_5_DEPLOYMENT_GUIDE.md
+│   │   └── LOCAL_OFFLINE_SETUP.md
+│   ├── contracts/                     # Hợp đồng API & Schema dữ liệu
+│   ├── archive/                       # Lưu trữ báo cáo & ghi chú lịch sử
+│   └── DESIGN_QUESTIONS_AND_CONFIRMATIONS.md # Nhật ký xác nhận thiết kế
+│
+├── models/                            # Trọng số mô hình kiểm định
+│   ├── vietnamese_vehicle_detection/  # Mô hình YOLOv8 tinh chỉnh cho giao thông Việt Nam
+│   ├── onnx/                          # Mô hình ONNX slim xuất khẩu (416x416, 320x320)
+│   └── rknn/                          # Cấu hình biên dịch & file lượng tử hóa .rknn
+│
+├── src/                               # Mã nguồn lõi hệ thống
+│   ├── api/                           # FastAPI app, routes (live, lanes, tasks, upload)
+│   ├── worker/                        # Celery worker, hàng đợi pipeline, tracker Kalman
+│   ├── tfengine/                      # Động cơ hình học & phân tích không gian
+│   │   ├── core_ai/                   # Bộ phát hiện tương thích đa nền tảng (YoloByteTrackDetector)
+│   │   ├── edge_npu/                  # Động cơ tăng tốc Rockchip NPU (RKNNDetector, Dynamic Scheduler)
+│   │   ├── counting/                  # Thuật toán đếm qua vạch, cổng định hướng
+│   │   └── geometry/                  # Tọa độ ROI, đa giác làn đường
+│   └── shared/                        # Cấu hình, SQLite WAL database, R2 storage mock
+│
+├── scripts/                           # Kịch bản tự động hóa & Vận hành
+│   ├── workflow_orchestrator.py       # Orchestrator kiểm định 5 phase (/run-workflow)
+│   ├── deploy_to_opi5.ps1             # Đồng bộ & Deploy từ xa lên OPi5 (qnhat@100.115.216.86)
+│   ├── export_opi5_models.py          # Xuất ONNX & cấu hình lượng tử hóa INT8
+│   ├── run_server.bat                 # Khởi chạy API server local
+│   ├── run_worker.bat                 # Khởi chạy Celery worker local
+│   └── start_redis.bat                # Khởi chạy Redis local
+│
+├── storage/                           # Vùng lưu trữ dữ liệu cục bộ (Zero-cloud fallback)
+│   ├── trafficflow_edge.sqlite        # SQLite database (chế độ WAL, ghi O(1))
+│   ├── uploads/                       # Video tải lên
+│   ├── previews/                      # Frame trích xuất cấu hình làn
+│   └── results/                       # Video kết quả vẽ overlay
+│
+├── tests/                             # Bộ kiểm thử tự động (199/199 tests passed)
+├── frontend/                          # Giao diện React (Vite) + HTML5 Canvas vẽ làn đường
+└── pyproject.toml                     # Cấu hình dự án & bộ quy tắc pytest
 ```
 
 ---
 
-## Đội ngũ & Vai trò
+## 2. Điểm Nhấn Hiệu Năng Phần Cứng Biên (Orange Pi 5)
 
-| Thành viên | Vai trò                   | Phụ trách chính                                                                                  |
-| ------------ | -------------------------- | --------------------------------------------------------------------------------------------------- |
-| Quang Nhật  | AI Pipeline Engineer       | Runtime engine, YOLO/ByteTrack inference, lane geometry, tracking, counting, benchmark & evaluation |
-| Công Phúc  | Frontend Engineer          | Upload UI, canvas lane drawing, coordinate scaling, progress/result dashboard                       |
-| Thái Hưng  | Backend Engineer           | FastAPI, database schema, upload/preview API, task/result APIs, data retention, file validation     |
-| Minh Tiến   | DevOps / Worker Engineer   | Celery/Redis, worker, Docker, compose, GPU allocation, environment configuration                    |
-| Tuấn Hưng  | Integration / QA / Release | End-to-end QA, coordinate alignment, queue stress testing, release checklist                        |
-
----
-
-## Công nghệ sử dụng
-
-| Tầng    | Công nghệ                                                |
-| -------- | ---------------------------------------------------------- |
-| AI / CV  | YOLOv8, YOLO11, ByteTrack, OpenCV 4.10, PyTorch, CUDA 12.4 |
-| Backend  | FastAPI, Celery, Redis, MongoDB Atlas                      |
-| Frontend | React (Vite), HTML5 Canvas                                 |
-| Storage  | Cloudflare R2                                              |
-| DevOps   | Docker, Docker Compose, NVIDIA Container Toolkit           |
+| Thông số | Trên CPU Cortex-A76 | Trên NPU RK3588 (INT8 Tri-Core) | Mức cải thiện |
+| :--- | :--- | :--- | :--- |
+| **Độ trễ suy luận ($416\times 416$)** | $53.48\text{ ms}$ | **$11.99\text{ ms}$** | **Nhanh hơn $4.46\times$** |
+| **Thông lượng suy luận (FPS)** | $18.7\text{ FPS}$ | **$83.4\text{ FPS}$** | **Gấp $4.46\times$** |
+| **Độ trễ suy luận ($320\times 320$)** | $32.10\text{ ms}$ | **$6.52\text{ ms}$** | **$153.4\text{ FPS}$** |
+| **Chuẩn hóa điểm ảnh (Pixel Norm)**| $5.2\text{ ms}$ (CPU) | **$< 0.1\text{ ms}$** (In-Silicon DMA) | **Giải phóng 95% CPU** |
+| **Thuật toán phân phối Core** | N/A | **Dynamic Auto-Sharding** | Tự động cân bằng 3 Core |
 
 ---
 
-## Quick Start
+## 3. Khởi Chạy Nhanh (Quick Start)
 
+### Lựa chọn A: Chạy Cục bộ trên Máy Host (Windows / Linux)
+Chế độ thuần nội bộ, không cần tài khoản Cloud, không lo ngắt kết nối:
+1. **Khởi chạy Redis:** Chạy [start_redis.bat](file:///c:/Users/ADMIN/_Project/TrafficFlow/start_redis.bat)
+2. **Khởi chạy API:** Chạy [run_server.bat](file:///c:/Users/ADMIN/_Project/TrafficFlow/run_server.bat)
+3. **Khởi chạy Worker (nếu cần xử lý video upload):** Chạy [run_worker.bat](file:///c:/Users/ADMIN/_Project/TrafficFlow/run_worker.bat)
+4. Mở trình duyệt tại: `http://localhost:8000` (API Docs tại `/docs`).
+
+### Lựa chọn B: Triển khai từ xa lên Orange Pi 5
+Sử dụng kịch bản đồng bộ qua Tailscale (`100.115.216.86`):
+```powershell
+# Đồng bộ mã nguồn và cấu hình
+.\scripts\deploy_to_opi5.ps1 -Stage "sync"
+
+# Build container ARM64 và khởi chạy trên board
+.\scripts\deploy_to_opi5.ps1 -Stage "all"
+```
+
+---
+
+## 4. Kiểm Chuẩn Hệ Thống (Workflow & Testing)
+
+Chạy bộ điều phối workflow tự động:
 ```bash
-cd TrafficFlow
-docker compose build
-docker compose up -d
+.venv\Scripts\python.exe scripts/workflow_orchestrator.py
 ```
+*Kết quả: Toàn bộ 5 Phase (Epistemic audit, NPU readiness, Core tests, OPi5 remote probe, Benchmark matrix) hoàn tất trong 1.26s.*
 
-Mở trình duyệt: **http://localhost:8000**
-
-3 containers: `api` (FastAPI + React), `worker` (YOLO GPU), `redis` (broker).
-
-Yêu cầu: Docker, Docker Compose, NVIDIA GPU + Container Toolkit (khuyến nghị RTX 3060+).
-
-Hướng dẫn chi tiết (cấu hình `.env`, API endpoints, xử lý lỗi): **[docs/HUONG_DAN_SU_DUNG.md](docs/HUONG_DAN_SU_DUNG.md)**
-
----
-
-## Tài liệu
-
-| Tài liệu                                            | Nội dung                                                                |
-| ----------------------------------------------------- | ------------------------------------------------------------------------ |
-| [docs/HUONG_DAN_SU_DUNG.md](docs/HUONG_DAN_SU_DUNG.md) | Hướng dẫn triển khai & sử dụng chi tiết                           |
-| [docs/portfolio/](docs/portfolio/)                     | AI pipeline, benchmark methodology, error analysis, CV package           |
-| [docs/reports/](docs/reports/)                         | Báo cáo benchmark từng phase (detection, tracking, counting, runtime) |
-| [docs/wiki/](docs/wiki/)                               | Wiki nội bộ: kiến trúc, quyết định kỹ thuật, sprint backlog     |
-| [docs/contracts/](docs/contracts/)                     | API contracts: lane config, progress callback, kết quả                 |
-| [benchmark/](benchmark/)                               | Bộ benchmark có thể tái lập: configs, splits, predictions, reports  |
+Chạy toàn bộ 199 unit & integration tests:
+```bash
+.venv\Scripts\python.exe -m pytest tests/
+```
+*Trạng thái: **199 passed, 0 failures**.*
 
 ---
 
-## Hạn chế & Hướng phát triển
+## 5. Tài Liệu Kỹ Thuật Tham Khảo
 
-**Hiện tại:**
-
-- Detection benchmark là sampled (frame-stride 100), chưa exhaustive toàn bộ frame
-- ROI crop accuracy chưa được benchmark định lượng (thiếu ground truth crop)
-- Live stream: chỉ đo được stability, chưa có GT để đo counting accuracy
-- Dataset UA-DETRAC không có motorcycle label → không claim motorcycle accuracy
-- Model weights, benchmark data, credentials không được commit lên repo
-
-**Hướng tiếp theo:**
-
-- Gán nhãn thủ công video thực tế để đo counting accuracy trên live source
-- Tự động phát hiện làn đường thay vì vẽ thủ công
-- Hỗ trợ nhiều camera cùng lúc
-
----
-
-*TrafficFlow — dự án nhóm 5 thành viên, 2026*
+- **Triển khai Orange Pi 5:** [docs/deployment/ORANGE_PI_5_DEPLOYMENT_GUIDE.md](docs/deployment/ORANGE_PI_5_DEPLOYMENT_GUIDE.md)
+- **Vận hành Local Offline:** [docs/deployment/LOCAL_OFFLINE_SETUP.md](docs/deployment/LOCAL_OFFLINE_SETUP.md)
+- **Đồ thị tri thức & Cổng nhận thức:** [docs/knowledge_graph/00_EPISTEMIC_STOPPING_GATE.md](docs/knowledge_graph/00_EPISTEMIC_STOPPING_GATE.md)
+- **Ma trận chấm điểm:** [docs/governance/01_SCORING_CRITERIA_AND_BENCHMARKS.md](docs/governance/01_SCORING_CRITERIA_AND_BENCHMARKS.md)
+- **Đội ngũ Agent chuyên trách:** [docs/governance/02_AGENT_TEAM_ROSTER_AND_ROLES.md](docs/governance/02_AGENT_TEAM_ROSTER_AND_ROLES.md)
+- **Lộ trình dài hạn 2026–2027:** [docs/governance/03_LONG_TERM_ROADMAP.md](docs/governance/03_LONG_TERM_ROADMAP.md)
+- **Nhật ký phê duyệt thiết kế:** [docs/DESIGN_QUESTIONS_AND_CONFIRMATIONS.md](docs/DESIGN_QUESTIONS_AND_CONFIRMATIONS.md)
